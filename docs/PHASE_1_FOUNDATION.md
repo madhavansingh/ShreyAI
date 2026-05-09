@@ -6,7 +6,7 @@
 ## 1.1 Project Structure to Create
 
 ```
-kodr-aura/
+sheryai/
 ├── backend/                  ← Node.js + Express
 │   ├── src/
 │   │   ├── routes/           ← API route files

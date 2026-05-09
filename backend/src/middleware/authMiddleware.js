@@ -9,7 +9,7 @@ const authMiddleware = (req, res, next) => {
   const role = req.headers['x-demo-role'] || req.query.role || 'student';
   req.user = {
     uid:   `demo-${role}`,
-    email: `${role}@demo.kodr`,
+    email: `${role}@demo.sheryai`,
     role,
   };
   next();

@@ -86,7 +86,7 @@ const DEMO_VIDEOS = [
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 async function main() {
-  console.log('\n🚀 Kodr Aura — Pre-Ingest Script');
+  console.log('\n🚀 SheryAI — Pre-Ingest Script');
   console.log(`   Course ID : ${DEMO_COURSE_ID}`);
   console.log(`   Videos    : ${DEMO_VIDEOS.length}`);
   console.log('─'.repeat(60));

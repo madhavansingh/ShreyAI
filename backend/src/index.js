@@ -120,7 +120,7 @@ app.use(errorHandler);
 
 // ─── Start Server ─────────────────────────────────────────────────────────────
 const server = app.listen(PORT, () => {
-  console.log(`\n🚀 Kodr Aura Backend running on port ${PORT}`);
+  console.log(`\n🚀 SheryAI Backend running on port ${PORT}`);
   console.log(`   Environment : ${process.env.NODE_ENV || 'development'}`);
   console.log(`   Health check: http://localhost:${PORT}/api/health`);
   console.log(`   Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:5173'}\n`);

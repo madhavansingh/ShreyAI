@@ -7,7 +7,7 @@ router.get('/', (req, res) => {
     success: true,
     status: 'ok',
     timestamp: new Date().toISOString(),
-    service: 'Kodr Aura — AI Learning Companion API',
+    service: 'SheryAI — AI Learning Companion API',
     version: '1.0.0',
     environment: process.env.NODE_ENV || 'development',
   });

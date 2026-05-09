@@ -48,8 +48,8 @@ export default function LoginPage() {
           fontSize: 24, fontWeight: 900, color: '#fff',
         }}>K</div>
         <div>
-          <div style={{ fontSize: 22, fontWeight: 900, color: '#fff', lineHeight: 1 }}>kodr</div>
-          <div style={{ fontSize: 11, color: '#555', letterSpacing: '0.12em', textTransform: 'uppercase' }}>AURA · DEMO</div>
+          <div style={{ fontSize: 22, fontWeight: 900, color: '#fff', lineHeight: 1 }}>SheryAI</div>
+          <div style={{ fontSize: 11, color: '#555', letterSpacing: '0.12em', textTransform: 'uppercase' }}>AI · DEMO</div>
         </div>
       </div>
 

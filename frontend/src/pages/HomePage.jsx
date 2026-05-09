@@ -6,7 +6,7 @@ export default function HomePage() {
       <Navbar />
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 'calc(100vh - 60px)', gap: 20, textAlign: 'center', padding: 24 }}>
         <div style={{ fontSize: 56, marginBottom: 4 }}>🔥</div>
-        <h1 style={{ margin: '0 0 8px', fontSize: 36, fontWeight: 900, color: '#fff' }}>Kodr Aura</h1>
+        <h1 style={{ margin: '0 0 8px', fontSize: 36, fontWeight: 900, color: '#fff' }}>SheryAI</h1>
         <p style={{ margin: '0 0 28px', fontSize: 16, color: 'var(--text-muted)', maxWidth: 420 }}>
           AI-powered learning — ask your lecture anything, get instant answers with timestamps.
         </p>

@@ -1,4 +1,4 @@
-# 🎓 Kodr Aura — AI-Powered Learning Platform
+# 🎓 SheryAI — AI-Powered Learning Platform
 
 > An intelligent LMS where every lecture becomes an interactive learning experience. Upload or link a video, and the AI automatically generates chapters, a chatbot tutor, quizzes, and searchable transcripts — all in real time.
 
@@ -25,7 +25,7 @@
 ## 🏗️ Architecture
 
 ```
-kodr-aura/
+sheryai/
 ├── backend/                  # Node.js + Express API
 │   ├── src/
 │   │   ├── config/           # Firebase, Gemini, NVIDIA client setup
@@ -97,8 +97,8 @@ kodr-aura/
 ### 1. Clone & Install
 
 ```bash
-git clone https://github.com/KANISHQ09/kodr-aura.git
-cd kodr-aura
+git clone https://github.com/KANISHQ09/sheryai.git
+cd sheryai
 
 # Install backend deps
 cd backend && npm install

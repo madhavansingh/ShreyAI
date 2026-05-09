@@ -1,5 +1,5 @@
 {
-  "name": "kodr-aura-backend",
+  "name": "sheryai-backend",
   "version": "1.0.0",
   "description": "AI Learning Companion — Backend API",
   "main": "src/index.js",

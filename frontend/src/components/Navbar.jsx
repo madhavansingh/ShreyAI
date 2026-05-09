@@ -44,10 +44,10 @@ export default function Navbar() {
           background: 'var(--accent)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontSize: 18, fontWeight: 800, color: '#fff',
-        }}>K</div>
+        }}>S</div>
         <div>
-          <div style={{ fontWeight: 800, fontSize: 14, lineHeight: 1.2, color: '#fff' }}>kodr</div>
-          <div style={{ fontSize: 10, color: 'var(--text-muted)', lineHeight: 1, letterSpacing: '0.05em' }}>AURA</div>
+          <div style={{ fontWeight: 800, fontSize: 14, lineHeight: 1.2, color: '#fff' }}>SheryAI</div>
+          <div style={{ fontSize: 10, color: 'var(--text-muted)', lineHeight: 1, letterSpacing: '0.05em' }}>Powered by AI</div>
         </div>
       </Link>
 
