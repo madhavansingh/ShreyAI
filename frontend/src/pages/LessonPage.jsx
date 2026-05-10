@@ -202,9 +202,9 @@ export default function LessonPage() {
   const currentStatus = liveStatus || lesson?.status;
 
   // ── Subtitle engine ────────────────────────────────────────────────────────
-  const isYouTube  = Boolean(lesson?.youtubeVideoId);
-  // For YouTube, pass currentTimeRef; for native video, pass videoRef directly
-  const subtitles  = useSubtitles(
+  const isYouTube = Boolean(lesson?.youtubeVideoId);
+  // New API: always pass both refs; hook picks whichever is populated
+  const subtitles = useSubtitles(
     lessonId,
     isYouTube ? null : videoRef,
     isYouTube ? currentTimeRef : null,

@@ -1,8 +1,13 @@
 /**
  * hooks/useSubtitles.js
- * Real-time subtitle sync engine.
- * Fix: loop function stored in a ref so rAF always calls the latest version
- * without stale closure issues.
+ * Production subtitle engine — word timeline approach (YouTube-style).
+ *
+ * Architecture:
+ *   1. Fetch transcript chunks from backend
+ *   2. Flatten all chunks into a deduplicated per-word timestamp array
+ *   3. rAF loop: binary-search the word array for currentTime, render
+ *      a rolling window of the last N visible words
+ *   4. This guarantees zero gaps — subtitles never stop mid-speech
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -12,130 +17,210 @@ const BACKEND_URL =
   import.meta.env.VITE_BACKEND_URL ||
   'http://localhost:5001';
 
-// ── Find chunk whose [startTime, endTime] contains `time` ─────────────────────
-// Linear scan — safe for overlapping intervals (unlike binary search)
-function findActiveChunk(chunks, time) {
-  if (!chunks || chunks.length === 0) return null;
+// How many words to keep visible in the rolling window (≈ 2 lines)
+const WINDOW_WORDS = 14;
 
-  // Find all chunks that overlap current time, pick the latest-starting one
-  let best = null;
-  for (let i = 0; i < chunks.length; i++) {
-    const c = chunks[i];
-    if (time >= c.startTime && time <= c.endTime + 0.5) {
-      // Prefer the chunk whose startTime is closest to (but not after) currentTime
-      if (!best || c.startTime > best.startTime) {
-        best = c;
+// ── Devanagari → Roman transliteration (basic map for common patterns) ─────────
+const DEVANAGARI_MAP = {
+  'अ':'a','आ':'aa','इ':'i','ई':'ee','उ':'u','ऊ':'oo','ए':'e','ऐ':'ai','ओ':'o','औ':'au',
+  'क':'k','ख':'kh','ग':'g','घ':'gh','च':'ch','छ':'chh','ज':'j','झ':'jh',
+  'ट':'t','ठ':'th','ड':'d','ढ':'dh','त':'t','थ':'th','द':'d','ध':'dh',
+  'न':'n','प':'p','फ':'f','ब':'b','भ':'bh','म':'m','य':'y','र':'r','ल':'l',
+  'व':'v','श':'sh','ष':'sh','स':'s','ह':'h','क्ष':'ksh','ज्ञ':'gya',
+  'ं':'n','ः':'h','ा':'a','ि':'i','ी':'ee','ु':'u','ू':'oo','े':'e','ै':'ai',
+  'ो':'o','ौ':'au','्':'','ृ':'ri',
+};
+
+function hasDevanagari(text) {
+  return /[\u0900-\u097F]/.test(text);
+}
+
+function transliterateDevanagari(text) {
+  let result = '';
+  for (const ch of text) {
+    if (DEVANAGARI_MAP[ch] !== undefined) {
+      result += DEVANAGARI_MAP[ch];
+    } else if (/[\u0900-\u097F]/.test(ch)) {
+      // Unknown Devanagari — skip
+    } else {
+      result += ch;
+    }
+  }
+  return result.replace(/\s+/g, ' ').trim();
+}
+
+function normalizeText(text, language) {
+  if (!text) return '';
+  if (language === 'hinglish' && hasDevanagari(text)) {
+    return transliterateDevanagari(text);
+  }
+  // Always strip Devanagari in English mode
+  if (hasDevanagari(text)) {
+    return transliterateDevanagari(text);
+  }
+  return text;
+}
+
+// ── Build a flat word timeline from overlapping transcript chunks ──────────────
+// Each entry: { word: string, ts: number }  (ts = when word should appear, secs)
+function buildWordTimeline(chunks) {
+  if (!chunks || chunks.length === 0) return [];
+
+  // Sort by startTime
+  const sorted = [...chunks].sort((a, b) => a.startTime - b.startTime);
+
+  const timeline = [];
+  let coverage = 0; // latest endTime we've committed words for
+
+  for (const chunk of sorted) {
+    if (!chunk.text) continue;
+    const words = chunk.text.split(/\s+/).filter(Boolean);
+    if (words.length === 0) continue;
+
+    const chunkStart = chunk.startTime;
+    const chunkEnd   = chunk.endTime;
+    if (chunkStart >= chunkEnd) continue;
+
+    // How long each word "takes" within this chunk
+    const wordDuration = (chunkEnd - chunkStart) / words.length;
+
+    // Only add words that START after our current coverage (dedup overlaps)
+    const effectiveFrom = Math.max(chunkStart, coverage);
+
+    for (let i = 0; i < words.length; i++) {
+      const wordTs = chunkStart + i * wordDuration;
+      if (wordTs >= effectiveFrom - 0.05) { // 50ms tolerance
+        timeline.push({ word: words[i], ts: wordTs });
       }
     }
-  }
-  if (best) return best;
 
-  // Small gap between chunks — look up to 2s ahead
-  for (let i = 0; i < chunks.length; i++) {
-    const c = chunks[i];
-    if (c.startTime > time && c.startTime - time < 2.0) {
-      return c;
+    if (chunkEnd > coverage) coverage = chunkEnd;
+  }
+
+  // Sort by timestamp and remove duplicates (same ts within 50ms of each other)
+  timeline.sort((a, b) => a.ts - b.ts);
+
+  const deduped = [];
+  for (const entry of timeline) {
+    const prev = deduped[deduped.length - 1];
+    if (prev && Math.abs(entry.ts - prev.ts) < 0.05 && entry.word === prev.word) {
+      continue; // true duplicate
+    }
+    deduped.push(entry);
+  }
+
+  return deduped;
+}
+
+// ── Binary search: find last word index with ts <= time ───────────────────────
+function findLastVisibleIdx(timeline, time) {
+  if (!timeline.length) return -1;
+  if (time < timeline[0].ts) return -1;
+  if (time >= timeline[timeline.length - 1].ts) return timeline.length - 1;
+
+  let lo = 0, hi = timeline.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (timeline[mid].ts <= time) {
+      lo = mid;
+    } else {
+      hi = mid - 1;
     }
   }
-  return null;
+  return lo;
 }
 
-function getWords(text) {
-  return (text || '').split(/\s+/).filter(Boolean);
-}
-
-function getVisibleWordCount(chunk, currentTime) {
-  if (!chunk) return 0;
-  const chunkDuration = Math.max(chunk.endTime - chunk.startTime, 1);
-  const elapsed = Math.max(0, currentTime - chunk.startTime);
-  const words = getWords(chunk.text);
-  if (words.length === 0) return 0;
-  const wps = words.length / chunkDuration;
-  // +0.3s head-start so first word shows immediately
-  const visible = Math.floor((elapsed + 0.3) * wps);
-  return Math.min(visible, words.length);
-}
-
+// ═══════════════════════════════════════════════════════════════════════════════
 export function useSubtitles(lessonId, videoRef, currentTimeRef) {
   const [enabled, setEnabled]           = useState(false);
   const [language, setLanguage]         = useState('english');
-  const [chunks, setChunks]             = useState([]);
-  const [activeChunk, setActiveChunk]   = useState(null);
-  const [visibleWords, setVisibleWords] = useState([]);
+  const [hasTranscript, setHasTranscript] = useState(false);
   const [loading, setLoading]           = useState(false);
   const [error, setError]               = useState(null);
 
-  const rafRef          = useRef(null);
+  // What the overlay actually renders
+  const [displayWords, setDisplayWords] = useState([]);
+
+  // Refs — avoids stale closure inside rAF
   const enabledRef      = useRef(false);
-  const chunksRef       = useRef([]);
-  const lastChunkIdx    = useRef(null);
-  const lastWordCount   = useRef(0);
+  const timelineRef     = useRef([]);   // flat word-ts array
+  const languageRef     = useRef('english');
+  const rafRef          = useRef(null);
+  const lastEndIdxRef   = useRef(-1);   // tracks last rendered word index
+  const lastTimeRef     = useRef(-1);   // detect seeks
 
-  // Keep refs in sync with state so the rAF loop always sees latest values
   useEffect(() => { enabledRef.current = enabled; }, [enabled]);
-  useEffect(() => { chunksRef.current = chunks; }, [chunks]);
+  useEffect(() => { languageRef.current = language; }, [language]);
 
-  // ── rAF loop — defined in a ref so it's always fresh, no stale closure ───────
-  const loopFnRef = useRef(null);
-  loopFnRef.current = () => {
-    if (!enabledRef.current || chunksRef.current.length === 0) {
-      rafRef.current = requestAnimationFrame(loopFnRef.current);
+  // ── rAF loop via ref (never goes stale) ──────────────────────────────────────
+  const loopFn = useRef(null);
+  loopFn.current = () => {
+    if (!enabledRef.current || timelineRef.current.length === 0) {
+      rafRef.current = requestAnimationFrame(loopFn.current);
       return;
     }
 
-    // Read current playback time
-    let currentTime = 0;
+    // Get current playback time
+    let t = 0;
     if (videoRef?.current) {
-      currentTime = videoRef.current.currentTime || 0;
+      t = videoRef.current.currentTime || 0;
     } else if (currentTimeRef?.current !== undefined) {
-      currentTime = currentTimeRef.current;
+      t = currentTimeRef.current;
     }
 
-    const chunk = findActiveChunk(chunksRef.current, currentTime);
-    const chunkIdx = chunk?.chunkIndex ?? null;
-
-    // Chunk changed → reset
-    if (chunkIdx !== lastChunkIdx.current) {
-      lastChunkIdx.current = chunkIdx;
-      lastWordCount.current = 0;
-      setActiveChunk(chunk);
-      setVisibleWords([]);
+    // Detect seek — reset rolling window
+    if (Math.abs(t - lastTimeRef.current) > 2.0 && lastTimeRef.current !== -1) {
+      lastEndIdxRef.current = -1;
     }
+    lastTimeRef.current = t;
 
-    if (chunk) {
-      const wordCount = getVisibleWordCount(chunk, currentTime);
-      if (wordCount !== lastWordCount.current) {
-        lastWordCount.current = wordCount;
-        setVisibleWords(getWords(chunk.text).slice(0, wordCount));
+    const tl = timelineRef.current;
+    const endIdx = findLastVisibleIdx(tl, t);
+
+    // Only update state when something changed
+    if (endIdx !== lastEndIdxRef.current) {
+      lastEndIdxRef.current = endIdx;
+
+      if (endIdx < 0) {
+        setDisplayWords([]);
+      } else {
+        // Rolling window: last WINDOW_WORDS words
+        const startIdx = Math.max(0, endIdx - WINDOW_WORDS + 1);
+        const words = tl.slice(startIdx, endIdx + 1).map(e =>
+          normalizeText(e.word, languageRef.current)
+        ).filter(Boolean);
+        setDisplayWords(words);
       }
     }
 
-    rafRef.current = requestAnimationFrame(loopFnRef.current);
+    rafRef.current = requestAnimationFrame(loopFn.current);
   };
 
-  // ── Start loop once on mount, stop on unmount ──────────────────────────────
+  // ── Start loop on mount, never stop (gated by enabledRef) ───────────────────
   useEffect(() => {
-    rafRef.current = requestAnimationFrame(loopFnRef.current);
+    rafRef.current = requestAnimationFrame(loopFn.current);
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, []); // intentionally empty — loop runs forever, gated by enabledRef
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── When subtitles disabled → clear display ───────────────────────────────
+  // ── Clear display when disabled ───────────────────────────────────────────────
   useEffect(() => {
     if (!enabled) {
-      setActiveChunk(null);
-      setVisibleWords([]);
-      lastChunkIdx.current = null;
-      lastWordCount.current = 0;
+      setDisplayWords([]);
+      lastEndIdxRef.current = -1;
+      lastTimeRef.current = -1;
     }
   }, [enabled]);
 
-  // ── Fetch transcript ──────────────────────────────────────────────────────
+  // ── Fetch & build timeline when lessonId changes ──────────────────────────────
   useEffect(() => {
     if (!lessonId) return;
     setLoading(true);
     setError(null);
+    setHasTranscript(false);
+    timelineRef.current = [];
+
     const role = localStorage.getItem('demo_role') || 'student';
 
     fetch(`${BACKEND_URL}/api/lessons/${lessonId}/transcript`, {
@@ -144,37 +229,36 @@ export function useSubtitles(lessonId, videoRef, currentTimeRef) {
       .then(r => r.json())
       .then(data => {
         if (data.success && data.chunks?.length > 0) {
-          const sorted = [...data.chunks].sort((a, b) => a.startTime - b.startTime);
-          setChunks(sorted);
+          const timeline = buildWordTimeline(data.chunks);
+          timelineRef.current = timeline;
+          setHasTranscript(timeline.length > 0);
         } else {
-          setError('No transcript data available.');
+          setError('No transcript available.');
         }
       })
       .catch(() => setError('Could not load transcript.'))
       .finally(() => setLoading(false));
 
     return () => {
-      setChunks([]);
-      setActiveChunk(null);
-      setVisibleWords([]);
-      lastChunkIdx.current = null;
-      lastWordCount.current = 0;
+      timelineRef.current = [];
+      lastEndIdxRef.current = -1;
+      lastTimeRef.current = -1;
+      setDisplayWords([]);
+      setHasTranscript(false);
     };
-  }, [lessonId]);
+  }, [lessonId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggleEnabled  = useCallback(() => setEnabled(e => !e), []);
-  const changeLanguage = useCallback((lang) => setLanguage(lang), []);
+  const changeLanguage = useCallback(lang => setLanguage(lang), []);
 
   return {
     enabled,
     toggleEnabled,
     language,
     changeLanguage,
-    activeChunk,
-    visibleWords,
-    chunks,
+    displayWords,
+    hasTranscript,
     loading,
     error,
-    hasTranscript: chunks.length > 0,
   };
 }
