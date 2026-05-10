@@ -196,22 +196,18 @@ export default function SubtitleOverlay({ subtitles }) {
   const fadeTimerRef = useRef(null);
 
   // Manage fade-in / fade-out
+  const hasText = visibleWords.length > 0;
   useEffect(() => {
-    const hasText = visibleWords.length > 0;
-
     if (hasText) {
       clearTimeout(fadeTimerRef.current);
       setVisible(true);
-      // Small tick to trigger CSS transition
       requestAnimationFrame(() => setFade(true));
     } else {
-      // Fade out then hide
       setFade(false);
       fadeTimerRef.current = setTimeout(() => setVisible(false), 300);
     }
-
     return () => clearTimeout(fadeTimerRef.current);
-  }, [visibleWords.length > 0]);
+  }, [hasText]);
 
   // Track chunk transitions for animation
   useEffect(() => {

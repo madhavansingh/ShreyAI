@@ -1,13 +1,8 @@
 /**
  * hooks/useSubtitles.js
- * Production-ready subtitle sync engine.
- *
- * Data flow:
- *   1. Fetch transcript chunks from /api/lessons/:id/transcript
- *   2. On each video timeupdate, find the active chunk (binary search)
- *   3. Progressively reveal words in that chunk as playback advances
- *   4. Support English and Hinglish rendering
- *   5. Clean up all timers on unmount
+ * Real-time subtitle sync engine.
+ * Fix: loop function stored in a ref so rAF always calls the latest version
+ * without stale closure issues.
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -17,77 +12,138 @@ const BACKEND_URL =
   import.meta.env.VITE_BACKEND_URL ||
   'http://localhost:5001';
 
-// ── Binary search: find chunk whose [startTime, endTime] contains `time` ──────
+// ── Find chunk whose [startTime, endTime] contains `time` ─────────────────────
+// Linear scan — safe for overlapping intervals (unlike binary search)
 function findActiveChunk(chunks, time) {
   if (!chunks || chunks.length === 0) return null;
 
-  let lo = 0, hi = chunks.length - 1;
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
-    const c = chunks[mid];
-    if (time < c.startTime) {
-      hi = mid - 1;
-    } else if (time > c.endTime) {
-      lo = mid + 1;
-    } else {
+  // Find all chunks that overlap current time, pick the latest-starting one
+  let best = null;
+  for (let i = 0; i < chunks.length; i++) {
+    const c = chunks[i];
+    if (time >= c.startTime && time <= c.endTime + 0.5) {
+      // Prefer the chunk whose startTime is closest to (but not after) currentTime
+      if (!best || c.startTime > best.startTime) {
+        best = c;
+      }
+    }
+  }
+  if (best) return best;
+
+  // Small gap between chunks — look up to 2s ahead
+  for (let i = 0; i < chunks.length; i++) {
+    const c = chunks[i];
+    if (c.startTime > time && c.startTime - time < 2.0) {
       return c;
     }
   }
-
-  // Gap between chunks — look slightly ahead (within 1.5s)
-  const ahead = chunks.find(
-    c => c.startTime > time && c.startTime - time < 1.5
-  );
-  return ahead || null;
+  return null;
 }
 
-// ── Split chunk text into words array ─────────────────────────────────────────
 function getWords(text) {
   return (text || '').split(/\s+/).filter(Boolean);
 }
 
-// ── Calculate how many words to show based on time elapsed in chunk ───────────
 function getVisibleWordCount(chunk, currentTime) {
   if (!chunk) return 0;
-  const chunkDuration = Math.max(chunk.endTime - chunk.startTime, 0.5);
+  const chunkDuration = Math.max(chunk.endTime - chunk.startTime, 1);
   const elapsed = Math.max(0, currentTime - chunk.startTime);
   const words = getWords(chunk.text);
   if (words.length === 0) return 0;
-
-  // Words per second
   const wps = words.length / chunkDuration;
-  // +0.5s head-start so first word appears immediately
-  const visible = Math.floor((elapsed + 0.5) * wps);
+  // +0.3s head-start so first word shows immediately
+  const visible = Math.floor((elapsed + 0.3) * wps);
   return Math.min(visible, words.length);
 }
 
-export function useSubtitles(lessonId, videoRef, currentTimeRef, isYouTube) {
-  const [enabled, setEnabled]             = useState(false);
-  const [language, setLanguage]           = useState('english'); // 'english' | 'hinglish'
-  const [chunks, setChunks]               = useState([]);
-  const [activeChunk, setActiveChunk]     = useState(null);
-  const [visibleWords, setVisibleWords]   = useState([]);
-  const [loading, setLoading]             = useState(false);
-  const [error, setError]                 = useState(null);
+export function useSubtitles(lessonId, videoRef, currentTimeRef) {
+  const [enabled, setEnabled]           = useState(false);
+  const [language, setLanguage]         = useState('english');
+  const [chunks, setChunks]             = useState([]);
+  const [activeChunk, setActiveChunk]   = useState(null);
+  const [visibleWords, setVisibleWords] = useState([]);
+  const [loading, setLoading]           = useState(false);
+  const [error, setError]               = useState(null);
 
-  const rafRef         = useRef(null);
-  const lastChunkRef   = useRef(null);
-  const lastWordCount  = useRef(0);
+  const rafRef          = useRef(null);
+  const enabledRef      = useRef(false);
+  const chunksRef       = useRef([]);
+  const lastChunkIdx    = useRef(null);
+  const lastWordCount   = useRef(0);
 
-  // ── Fetch transcript on mount / lessonId change ────────────────────────────
+  // Keep refs in sync with state so the rAF loop always sees latest values
+  useEffect(() => { enabledRef.current = enabled; }, [enabled]);
+  useEffect(() => { chunksRef.current = chunks; }, [chunks]);
+
+  // ── rAF loop — defined in a ref so it's always fresh, no stale closure ───────
+  const loopFnRef = useRef(null);
+  loopFnRef.current = () => {
+    if (!enabledRef.current || chunksRef.current.length === 0) {
+      rafRef.current = requestAnimationFrame(loopFnRef.current);
+      return;
+    }
+
+    // Read current playback time
+    let currentTime = 0;
+    if (videoRef?.current) {
+      currentTime = videoRef.current.currentTime || 0;
+    } else if (currentTimeRef?.current !== undefined) {
+      currentTime = currentTimeRef.current;
+    }
+
+    const chunk = findActiveChunk(chunksRef.current, currentTime);
+    const chunkIdx = chunk?.chunkIndex ?? null;
+
+    // Chunk changed → reset
+    if (chunkIdx !== lastChunkIdx.current) {
+      lastChunkIdx.current = chunkIdx;
+      lastWordCount.current = 0;
+      setActiveChunk(chunk);
+      setVisibleWords([]);
+    }
+
+    if (chunk) {
+      const wordCount = getVisibleWordCount(chunk, currentTime);
+      if (wordCount !== lastWordCount.current) {
+        lastWordCount.current = wordCount;
+        setVisibleWords(getWords(chunk.text).slice(0, wordCount));
+      }
+    }
+
+    rafRef.current = requestAnimationFrame(loopFnRef.current);
+  };
+
+  // ── Start loop once on mount, stop on unmount ──────────────────────────────
+  useEffect(() => {
+    rafRef.current = requestAnimationFrame(loopFnRef.current);
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, []); // intentionally empty — loop runs forever, gated by enabledRef
+
+  // ── When subtitles disabled → clear display ───────────────────────────────
+  useEffect(() => {
+    if (!enabled) {
+      setActiveChunk(null);
+      setVisibleWords([]);
+      lastChunkIdx.current = null;
+      lastWordCount.current = 0;
+    }
+  }, [enabled]);
+
+  // ── Fetch transcript ──────────────────────────────────────────────────────
   useEffect(() => {
     if (!lessonId) return;
     setLoading(true);
     setError(null);
-
     const role = localStorage.getItem('demo_role') || 'student';
+
     fetch(`${BACKEND_URL}/api/lessons/${lessonId}/transcript`, {
       headers: { 'x-demo-role': role },
     })
       .then(r => r.json())
       .then(data => {
-        if (data.success && data.chunks) {
-          // Sort by startTime to ensure binary search works
+        if (data.success && data.chunks?.length > 0) {
           const sorted = [...data.chunks].sort((a, b) => a.startTime - b.startTime);
           setChunks(sorted);
         } else {
@@ -101,63 +157,12 @@ export function useSubtitles(lessonId, videoRef, currentTimeRef, isYouTube) {
       setChunks([]);
       setActiveChunk(null);
       setVisibleWords([]);
+      lastChunkIdx.current = null;
+      lastWordCount.current = 0;
     };
   }, [lessonId]);
 
-  // ── rAF loop: runs only when subtitles are enabled ─────────────────────────
-  const syncLoop = useCallback(() => {
-    if (!enabled || chunks.length === 0) return;
-
-    // Get current playback time from native video or YouTube polling ref
-    let currentTime = 0;
-    if (videoRef?.current) {
-      currentTime = videoRef.current.currentTime || 0;
-    } else if (currentTimeRef?.current !== undefined) {
-      currentTime = currentTimeRef.current;
-    }
-
-    const chunk = findActiveChunk(chunks, currentTime);
-
-    // Chunk changed — reset word reveal
-    if (chunk?.chunkIndex !== lastChunkRef.current?.chunkIndex) {
-      lastChunkRef.current = chunk;
-      lastWordCount.current = 0;
-      setActiveChunk(chunk);
-      setVisibleWords(chunk ? [] : []);
-    }
-
-    if (chunk) {
-      const wordCount = getVisibleWordCount(chunk, currentTime);
-      if (wordCount !== lastWordCount.current) {
-        lastWordCount.current = wordCount;
-        setVisibleWords(getWords(chunk.text).slice(0, wordCount));
-      }
-    }
-
-    rafRef.current = requestAnimationFrame(syncLoop);
-  }, [enabled, chunks, videoRef, currentTimeRef]);
-
-  // ── Start / stop rAF loop ─────────────────────────────────────────────────
-  useEffect(() => {
-    if (enabled && chunks.length > 0) {
-      rafRef.current = requestAnimationFrame(syncLoop);
-    } else {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      setActiveChunk(null);
-      setVisibleWords([]);
-      lastChunkRef.current = null;
-      lastWordCount.current = 0;
-    }
-
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    };
-  }, [enabled, chunks, syncLoop]);
-
-  // ── Toggle CC ─────────────────────────────────────────────────────────────
-  const toggleEnabled = useCallback(() => setEnabled(e => !e), []);
-
-  // ── Change language instantly ─────────────────────────────────────────────
+  const toggleEnabled  = useCallback(() => setEnabled(e => !e), []);
   const changeLanguage = useCallback((lang) => setLanguage(lang), []);
 
   return {
