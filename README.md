@@ -1,6 +1,6 @@
-# 🎓 Shery AI — AI-Powered Learning Platform
+# 🎓 Shery AI - AI-Powered Learning Platform
 
-> Transform any video lecture into a fully interactive learning experience. Upload an MP4 or paste a YouTube URL — Shery auto-generates chapters, a context-aware AI tutor, quizzes, summaries, and live subtitles. No manual tagging required.
+> Shery AI is a powerful, production-ready **Learning Management System (LMS)** platform that transforms any video into a fully interactive learning experience. Whether you upload local videos directly (MP4/WebM/MOV) or import external links from YouTube, Google Drive, or any other source, Shery auto-generates chapters, a context-aware AI tutor, quizzes, summaries, and live subtitles. No manual tagging required!
 
 [![Node.js](https://img.shields.io/badge/Node.js-20-green?logo=node.js)](https://nodejs.org)
 [![React](https://img.shields.io/badge/React-18-blue?logo=react)](https://react.dev)
@@ -17,7 +17,7 @@
 |---|---|
 | 🎬 **Dual Ingestion** | YouTube URL (caption fetch) or direct MP4/WebM/MOV upload (up to 500 MB) |
 | 📝 **Auto Transcription** | AssemblyAI speech-to-text with word-level timestamps; YouTube uses native captions |
-| 🤖 **AI Tutor — Shery** | Nemotron-3-Nano-30B, RAG over transcript chunks, streams token-by-token via SSE |
+| 🤖 **AI Tutor - Shery** | Nemotron-3-Nano-30B, RAG over transcript chunks, streams token-by-token via SSE |
 | 📍 **YouTube-Style Chapters** | Nemotron generates N chapters (1 per ~20 s) with start timestamps; renders on video timeline |
 | ⏱️ **Clickable Timestamps** | AI responses embed `(MM:SS)` markers that jump the video player when clicked |
 | 🎙️ **Live Subtitles** | Word-by-word reveal synced to playback; auto-romanises Devanagari to Roman script |
@@ -38,8 +38,8 @@
 |---|---|---|
 | Runtime | Node.js 20 | Server runtime |
 | Framework | Express 4 | HTTP routing, middleware |
-| AI — Chat | Google Nemotron-3-Nano-30B (`@google/generative-ai`) | SSE-streamed RAG chat, quiz, summary |
-| AI — Embeddings | None (BM25 keyword search) | Retrieval without external embedding API |
+| AI - Chat | Google Nemotron-3-Nano-30B (`@google/generative-ai`) | SSE-streamed RAG chat, quiz, summary |
+| AI - Embeddings | None (BM25 keyword search) | Retrieval without external embedding API |
 | Transcription | AssemblyAI SDK | Speech-to-text for uploaded videos |
 | Database | Cloud Firestore | Lessons, chunks, sessions, users |
 | Storage | Firebase Storage (GCS) | Persistent video file storage |
@@ -110,9 +110,9 @@
 
 ## 🔄 AI Ingestion Pipeline
 
-The ingestion system has two parallel flows managed by `ingestOrchestrator.js`. Both run **fire-and-forget** via `setImmediate()` — the HTTP response returns immediately (201) and the frontend polls `/status` for real-time progress.
+The ingestion system has two parallel flows managed by `ingestOrchestrator.js`. Both run **fire-and-forget** via `setImmediate()` - the HTTP response returns immediately (201) and the frontend polls `/status` for real-time progress.
 
-### Flow A — YouTube (Fast Path)
+### Flow A - YouTube (Fast Path)
 
 ```
 POST /api/lessons/ingest-youtube
@@ -142,7 +142,7 @@ POST /api/lessons/ingest-youtube
 └────────────────────────────────────────────────────┘
 ```
 
-### Flow B — Uploaded Video (Full Pipeline)
+### Flow B - Uploaded Video (Full Pipeline)
 
 ```
 POST /api/lessons/upload  (multipart/form-data, up to 500MB)
@@ -157,7 +157,7 @@ POST /api/lessons/upload  (multipart/form-data, up to 500MB)
         │
         ▼ Phase B (background, setImmediate)
 ┌─────────────────────────────────────────────────────┐
-│ runUploadIngest()  — Progress: 1% → 100%            │
+│ runUploadIngest()  - Progress: 1% → 100%            │
 │                                                     │
 │  Phase 1 (1→15%):  uploadBufferToAssemblyAI()       │
 │    └─ Streams buffer to AssemblyAI Files API        │
@@ -181,7 +181,7 @@ POST /api/lessons/upload  (multipart/form-data, up to 500MB)
 
 ## 🔍 RAG Chat Architecture
 
-The chat system is a **streaming RAG pipeline** built entirely without a vector database — using BM25 keyword search instead.
+The chat system is a **streaming RAG pipeline** built entirely without a vector database - using BM25 keyword search instead.
 
 ```
 POST /api/chat/stream  (SSE endpoint)
@@ -228,7 +228,7 @@ POST /api/chat/stream  (SSE endpoint)
 │                                                       │
 │  9. { type: 'done' }  → res.end()                    │
 │                                                       │
-│  10. saveSessionMessage() — fire and forget           │
+│  10. saveSessionMessage() - fire and forget           │
 └──────────────────────────────────────────────────────┘
 ```
 
@@ -383,7 +383,7 @@ allowedOrigins = [
 | npm | ≥ 9 | Comes with Node.js 20 |
 | Firebase Project | Any | Firestore + Auth + Storage enabled |
 | AssemblyAI | Free tier | [assemblyai.com](https://www.assemblyai.com) |
-| Google AI Studio | Free tier | [aistudio.google.com](https://aistudio.google.com) — get Nemotron API key |
+| Google AI Studio | Free tier | [aistudio.google.com](https://aistudio.google.com) - get Nemotron API key |
 | gcloud CLI | Latest | Only needed for deployment |
 
 ---
@@ -408,7 +408,7 @@ cd ../frontend && npm install
 1. Go to [console.firebase.google.com](https://console.firebase.google.com) → create project
 2. Enable **Firestore**, **Authentication** (Google + Email/Password), **Storage**
 3. Go to **Project Settings → Service Accounts → Generate New Private Key**
-4. Download the JSON — you'll paste it as `FIREBASE_SERVICE_ACCOUNT` below
+4. Download the JSON - you'll paste it as `FIREBASE_SERVICE_ACCOUNT` below
 5. Create the Firestore indexes (see [Firestore Indexes](#firestore-indexes))
 
 Apply CORS to your Storage bucket (run once in Cloud Shell):
@@ -433,7 +433,7 @@ FIREBASE_STORAGE_BUCKET=your-project.firebasestorage.app
 FIREBASE_SERVICE_ACCOUNT={"type":"service_account","project_id":"..."}
 
 # Google Nemotron (from AI Studio)
-# Note: stored in backend/src/config/nemotron.js — add GEMINI_API_KEY or NVIDIA_API_KEY
+# Note: stored in backend/src/config/nemotron.js - add GEMINI_API_KEY or NVIDIA_API_KEY
 NVIDIA_API_KEY=nvapi-...        # if using NVIDIA-hosted Nemotron
 # OR
 GEMINI_API_KEY=AIza...          # standard Google AI Studio key
@@ -441,7 +441,7 @@ GEMINI_API_KEY=AIza...          # standard Google AI Studio key
 # AssemblyAI
 ASSEMBLYAI_API_KEY=your_key
 
-# Cloudinary (optional — for image assets)
+# Cloudinary (optional - for image assets)
 CLOUDINARY_CLOUD_NAME=
 CLOUDINARY_API_KEY=
 CLOUDINARY_API_SECRET=
@@ -467,13 +467,13 @@ VITE_BACKEND_DIRECT_URL=https://your-service-url.run.app
 ### 4. Run Locally
 
 ```bash
-# Terminal 1 — Backend (port 5001)
+# Terminal 1 - Backend (port 5001)
 cd backend
 npm run dev
 # Nodemon auto-restarts on file changes
 # Kills any existing process on port 5001 first (predev script)
 
-# Terminal 2 — Frontend (port 5173)
+# Terminal 2 - Frontend (port 5173)
 cd frontend
 npm run dev
 # Vite HMR dev server
@@ -671,7 +671,7 @@ List all lessons for a course, ordered by `order` field.
 
 ### Chat
 
-#### `POST /api/chat/stream` — SSE Streaming
+#### `POST /api/chat/stream` - SSE Streaming
 The main RAG chat endpoint. Response is `text/event-stream`.
 
 ```json
@@ -750,7 +750,7 @@ Not rate-limited. Used by Cloud Run health checks.
 
 ## 🎙️ Subtitle Engine Deep Dive
 
-The subtitle engine (`useSubtitles.js`) is a custom React hook with ~430 lines. It implements word-by-word progressive reveal synced to `requestAnimationFrame` — identical to YouTube/Netflix captions.
+The subtitle engine (`useSubtitles.js`) is a custom React hook with ~430 lines. It implements word-by-word progressive reveal synced to `requestAnimationFrame` - identical to YouTube/Netflix captions.
 
 ### Architecture
 
@@ -778,7 +778,7 @@ Firestore transcriptChunks
               (consonant cluster mapping, vowel matra handling)
               │
               ▼
-        Roman script output — raw Hindi script never shown
+        Roman script output - raw Hindi script never shown
 ```
 
 ### Language Modes
@@ -786,7 +786,7 @@ Firestore transcriptChunks
 | Mode | Behaviour |
 |---|---|
 | `hinglish` | Default. English pass-through; Devanagari auto-romanised |
-| `hindi` | Alias for hinglish — same output |
+| `hindi` | Alias for hinglish - same output |
 | `english` | Pass-through, but Devanagari still romanised as safety fallback |
 
 The LOANWORD_MAP covers ~80 common tech/ML terms (मशीन, डेटा, नेटवर्क, etc.) that a naive character-level transliterator would mangle.
@@ -810,7 +810,7 @@ The LOANWORD_MAP covers ~80 common tech/ML terms (मशीन, डेटा, �
 *                     → NotFoundPage
 ```
 
-### `LessonPage.jsx` — The Core View
+### `LessonPage.jsx` - The Core View
 
 The largest file in the codebase (~1,000 lines). Three-column layout:
 
@@ -867,14 +867,14 @@ File uploads always use `DIRECT_URL` to support large files. All other calls use
 
 ## 🚢 Production Deployment
 
-### Backend — Google Cloud Run
+### Backend - Google Cloud Run
 
 **Build & Deploy (one command):**
 
 ```bash
 cd backend
 
-# Generate env vars file for Cloud Run (excludes PORT — it's reserved)
+# Generate env vars file for Cloud Run (excludes PORT - it's reserved)
 python3 - <<'EOF'
 import json, os
 env = {}
@@ -927,7 +927,7 @@ gcloud services enable artifactregistry.googleapis.com --project YOUR_PROJECT
 
 ---
 
-### Frontend — Vercel
+### Frontend - Vercel
 
 **Deploy via CLI:**
 
@@ -979,7 +979,7 @@ CMD ["node", "src/index.js"]
 
 ---
 
-### Environment Variables — Production Checklist
+### Environment Variables - Production Checklist
 
 | Variable | Set In | Value |
 |---|---|---|
@@ -1023,10 +1023,10 @@ npm run lint       # ESLint (0 warnings policy)
 ## 🐛 Troubleshooting
 
 ### Video not playing in production
-1. Check `lesson.videoUrl` in Firestore — must be `https://firebasestorage.googleapis.com/...`
+1. Check `lesson.videoUrl` in Firestore - must be `https://firebasestorage.googleapis.com/...`
 2. Verify Firebase Storage CORS is applied: `gcloud storage buckets describe gs://YOUR_BUCKET --format="json(cors)"`
 3. Ensure Firebase Storage Security Rules allow public read: `allow read: if true;`
-4. Old lessons saved with `local:` paths won't play — re-upload them
+4. Old lessons saved with `local:` paths won't play - re-upload them
 
 ### Backend crash on startup
 - Most common cause: `FIREBASE_SERVICE_ACCOUNT` env var is empty or malformed JSON
@@ -1035,7 +1035,7 @@ npm run lint       # ESLint (0 warnings policy)
 
 ### Chat returns "video still processing"
 - The lesson `status` in Firestore is not `ready`
-- Check `/api/lessons/:id/status` — look at `error` field for failure reason
+- Check `/api/lessons/:id/status` - look at `error` field for failure reason
 - Common issue: AssemblyAI quota exceeded or invalid API key
 
 ### Port 5001 already in use (macOS)
@@ -1046,11 +1046,11 @@ lsof -ti:5001 | xargs kill -9
 ```
 
 ### Subtitle showing Devanagari characters
-- Should not happen — the subtitle engine always romanises Devanagari
+- Should not happen - the subtitle engine always romanises Devanagari
 - If it does: add the problematic word to `LOANWORD_MAP` in `useSubtitles.js`
 
 ### Large file upload fails through Vercel
-- Expected — Vercel has a 4.5 MB request body limit
+- Expected - Vercel has a 4.5 MB request body limit
 - Frontend must set `VITE_BACKEND_DIRECT_URL` to point directly to Cloud Run
 - Verify `api.js` uses `DIRECT_URL` for `uploadLesson()`
 
@@ -1197,14 +1197,14 @@ chore:         build, deps, tooling
 
 ## 📜 License
 
-MIT — see [LICENSE](LICENSE) for details.
+MIT - see [LICENSE](LICENSE) for details.
 
 ---
 
 ## 🙌 Acknowledgements
 
-- [AssemblyAI](https://www.assemblyai.com) — world-class speech recognition
-- [Google Nemotron](https://ai.google.dev) — powering Shery's intelligence
-- [Firebase](https://firebase.google.com) — auth, database, storage infrastructure
-- [Vercel](https://vercel.com) — zero-config frontend deployment
-- [Google Cloud Run](https://cloud.google.com/run) — serverless container hosting
+- [AssemblyAI](https://www.assemblyai.com) - world-class speech recognition
+- [Google Nemotron](https://ai.google.dev) - powering Shery's intelligence
+- [Firebase](https://firebase.google.com) - auth, database, storage infrastructure
+- [Vercel](https://vercel.com) - zero-config frontend deployment
+- [Google Cloud Run](https://cloud.google.com/run) - serverless container hosting
