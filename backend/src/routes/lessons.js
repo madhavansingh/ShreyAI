@@ -8,15 +8,6 @@ const multer  = require('multer');
 const { v4: uuidv4 } = require('uuid');
 const path    = require('path');
 const fs      = require('fs');
-const cloudinary = require('cloudinary').v2;
-const streamifier = require('streamifier');
-
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET
-});
-
 const router  = express.Router();
 
 const { db, getBucket }                            = require('../config/firebase');
@@ -152,33 +143,31 @@ router.post('/upload', authMiddleware, requireInstructor, upload.single('file'),
 
     setImmediate(async () => {
       try {
-        // ── Phase A: Save video to Cloudinary (persistent across deployments) ──
-        console.log(`\n📤 Uploading ${fileName} to Cloudinary...`);
+        // ── Phase A: Save video to Firebase Storage (persistent across deployments) ──
+        console.log(`\n📤 Uploading ${fileName} to Firebase Storage...`);
         let videoUrl = null;
         try {
-          const cloudinaryUrl = await new Promise((resolve, reject) => {
-            const uploadStream = cloudinary.uploader.upload_chunked_stream(
-              { resource_type: 'video', folder: 'kodr-aura/videos', public_id: lessonId },
-              (error, result) => {
-                if (error) return reject(error);
-                resolve(result.secure_url);
-              }
-            );
-            streamifier.createReadStream(fileBuffer).pipe(uploadStream);
+          const bucket = getBucket();
+          const gcsPath = `videos/${lessonId}.${ext}`;
+          const file = bucket.file(gcsPath);
+          await file.save(fileBuffer, {
+            metadata: { contentType: fileMime },
+            resumable: false,
           });
-          
-          videoUrl = cloudinaryUrl;
-          console.log(`   ✅ Cloudinary upload done → ${videoUrl}`);
+          // Note: `makePublic()` requires specific bucket ACLs and can fail. 
+          // We rely on Firebase Security Rules instead and use the default Firebase Storage URL format.
+          videoUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(gcsPath)}?alt=media`;
+          console.log(`   ✅ Firebase Storage upload done → ${videoUrl}`);
 
-          // Persist videoUrl so frontend can play directly
+          // Persist videoUrl so frontend can play directly from GCS
           await db.collection('lessons').doc(lessonId).update({
             videoUrl,
-            storagePath: `cloudinary:${lessonId}`,
+            storagePath: `gs://${bucket.name}/${gcsPath}`,
             updatedAt: new Date().toISOString(),
           });
         } catch (storageErr) {
           // Storage upload failed — fall back to local disk (dev only)
-          console.warn(`⚠️  Cloudinary upload failed, falling back to local disk:`, storageErr.message);
+          console.warn(`⚠️  Firebase Storage upload failed, falling back to local disk:`, storageErr.message);
           await fs.promises.writeFile(localFile, fileBuffer);
           console.log(`   💾 Video saved locally → ${localFile}`);
         }
