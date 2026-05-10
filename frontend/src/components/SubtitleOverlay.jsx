@@ -152,20 +152,13 @@ const SubtitleOverlay = memo(function SubtitleOverlay({ subtitles }) {
   const { enabled, captionState } = subtitles;
   const { words, isNew } = captionState || { words: [], isNew: false };
   
-  const lines = toLines(words);
-
-  // When 'isNew' triggers, we force a re-animation of the container
-  // by utilizing a unique key based on the first word or empty.
-  // Actually, standard way is to just let CSS handle new text addition smoothly,
-  // but if it's a completely new sentence, a subtle fade in looks nice.
-  
   // Create a stable key for the current sentence block
   const blockKeyRef = useRef(0);
   if (isNew) {
     blockKeyRef.current += 1;
   }
 
-  if (!enabled || lines.length === 0) return null;
+  if (!enabled || !words || words.length === 0) return null;
 
   return (
     <>
@@ -186,65 +179,63 @@ const SubtitleOverlay = memo(function SubtitleOverlay({ subtitles }) {
         aria-label="Video subtitles"
         style={{
           position: 'absolute',
-          bottom: '8%', // slightly adaptive positioning
+          bottom: '8%',
           left: '50%',
           transform: 'translateX(-50%)',
           zIndex: 200,
-          maxWidth: '85%',
+          width: '100%',
+          maxWidth: '90%',
           pointerEvents: 'none',
-          width: 'max-content',
+          display: 'flex',
+          justifyContent: 'center',
         }}
       >
         <div 
           key={blockKeyRef.current} // Retriggers animation on new sentence
           style={{
-            background: 'rgba(0,0,0,0.75)', // slightly darker, more classic Netflix/YT style
+            background: 'rgba(0,0,0,0.75)',
             backdropFilter: 'blur(4px)',
             borderRadius: 6,
             padding: '8px 16px',
             textAlign: 'center',
             boxShadow: '0 2px 12px rgba(0,0,0,0.6)',
             animation: 'blockFadeIn 0.2s ease-out',
+            display: 'inline-block',
+            maxWidth: '100%',
+            boxSizing: 'border-box',
           }}
         >
-          {lines.map((line, i) => (
-            <div
-              key={i}
-              style={{
-                margin: i === 0 ? 0 : '4px 0 0',
-                fontSize: 'clamp(14px, 1.8vw, 22px)', // slightly larger for readability
-                fontWeight: 600, // Medium-bold
-                lineHeight: 1.4,
-                color: '#ffffff',
-                fontFamily: '"Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
-                textShadow: '1px 1px 2px rgba(0,0,0,0.8), 0 0 8px rgba(0,0,0,0.5)', // Stronger text shadow
-                letterSpacing: '0.02em',
-                whiteSpace: 'pre-wrap', // allow natural wrapping if needed
-              }}
-            >
-              {/* If we want to animate individual words slightly, we can map over words here.
-                  For a YouTube style progressive reveal, just showing the text is usually enough,
-                  but a tiny fade on the last word looks very polished. */}
-              {line.split(' ').map((word, wordIndex, arr) => {
-                // If it's the very last word in the entire caption block, give it a tiny fade
-                const isLastLine = i === lines.length - 1;
-                const isLastWord = wordIndex === arr.length - 1;
-                const animate = isLastLine && isLastWord && !isNew;
-                
-                return (
-                  <span 
-                    key={wordIndex} 
-                    style={{ 
-                      marginRight: wordIndex === arr.length - 1 ? 0 : '0.25em',
-                      animation: animate ? 'wordFadeIn 0.1s ease-out' : 'none'
-                    }}
-                  >
-                    {word}
-                  </span>
-                );
-              })}
-            </div>
-          ))}
+          <div
+            style={{
+              fontSize: 'clamp(14px, 1.8vw, 22px)',
+              fontWeight: 600,
+              lineHeight: 1.4,
+              color: '#ffffff',
+              fontFamily: '"Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+              textShadow: '1px 1px 2px rgba(0,0,0,0.8), 0 0 8px rgba(0,0,0,0.5)',
+              letterSpacing: '0.02em',
+              whiteSpace: 'normal',
+              wordBreak: 'break-word',
+            }}
+          >
+            {words.map((word, wordIndex, arr) => {
+              const isLastWord = wordIndex === arr.length - 1;
+              const animate = isLastWord && !isNew;
+              
+              return (
+                <span 
+                  key={wordIndex} 
+                  style={{ 
+                    marginRight: isLastWord ? 0 : '0.25em',
+                    animation: animate ? 'wordFadeIn 0.1s ease-out' : 'none',
+                    display: 'inline-block' // Prevents word splitting across lines mid-word
+                  }}
+                >
+                  {word}
+                </span>
+              );
+            })}
+          </div>
         </div>
       </div>
     </>
