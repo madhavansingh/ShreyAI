@@ -56,6 +56,23 @@ function buildSentenceBlocks(chunks) {
 
   const sorted = [...chunks].sort((a, b) => a.startTime - b.startTime);
   const blocks = [];
+  
+  let currentWords = [];
+  let blockStart = -1;
+  let blockEnd = -1;
+  
+  const flushBlock = () => {
+    if (currentWords.length > 0) {
+      blocks.push({
+        startTime: blockStart,
+        endTime: blockEnd,
+        words: currentWords
+      });
+      currentWords = [];
+    }
+  };
+
+  const MAX_WORDS = 12; // Roughly 2 lines of text
 
   for (const chunk of sorted) {
     if (!chunk.text?.trim()) continue;
@@ -68,15 +85,31 @@ function buildSentenceBlocks(chunks) {
 
     const wordDuration = (endTime - startTime) / words.length;
 
-    blocks.push({
-      startTime,
-      endTime,
-      words: words.map((word, i) => ({
-        word,
-        ts: startTime + i * wordDuration,
-      })),
-    });
+    // If there is a silence gap > 0.8s, flush the current block
+    if (currentWords.length > 0 && startTime - blockEnd > 0.8) {
+      flushBlock();
+    }
+
+    for (let i = 0; i < words.length; i++) {
+      if (currentWords.length === 0) {
+        blockStart = startTime + i * wordDuration;
+      }
+      
+      const wordText = words[i];
+      const wTs = startTime + i * wordDuration;
+      currentWords.push({ word: wordText, ts: wTs });
+      blockEnd = startTime + (i + 1) * wordDuration;
+
+      const isEndOfSentence = /[.!?]$/.test(wordText);
+
+      // Flush if we reached the max words (2 lines) or end of a sentence
+      if (currentWords.length >= MAX_WORDS || (isEndOfSentence && currentWords.length >= 4)) {
+        flushBlock();
+      }
+    }
   }
+  
+  flushBlock();
 
   return blocks;
 }
