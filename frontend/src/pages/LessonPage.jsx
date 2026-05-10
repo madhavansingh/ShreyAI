@@ -18,12 +18,23 @@ import { useSubtitles } from '../hooks/useSubtitles';
 import { getLesson, getLessons } from '../services/api';
 import { useLessonStatus } from '../hooks/useLessonStatus';
 
-const DEMO_COURSE = 'demo-course-001';
-const BASE_URL    = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001';
+const DEMO_COURSE   = 'demo-course-001';
+const BASE_URL      = import.meta.env.VITE_BACKEND_URL        || 'http://localhost:5001';
+const BACKEND_DIRECT = import.meta.env.VITE_BACKEND_DIRECT_URL || BASE_URL;
 
-// Build the video streaming URL — relative so Vite's /api proxy forwards it to the backend
-function buildVideoUrl(lessonId) {
-  return `/api/lessons/${lessonId}/video`;
+/**
+ * Resolve the correct video source for a lesson:
+ *  1. lesson.videoUrl — Firebase Storage public URL (persistent, cross-deployment)
+ *  2. Backend streaming endpoint — absolute URL to Cloud Run (works in prod)
+ * The old relative-path approach only worked on localhost via Vite proxy.
+ */
+function buildVideoUrl(lesson) {
+  if (!lesson) return '';
+  // Firebase Storage URL saved after upload — preferred in production
+  if (lesson.videoUrl) return lesson.videoUrl;
+  // Fall back to backend streaming: always use the absolute backend URL
+  const lessonId = lesson.lessonId || lesson.id;
+  return `${BACKEND_DIRECT}/api/lessons/${lessonId}/video?role=student`;
 }
 
 // ── Lesson sidebar row ─────────────────────────────────────────────────────────
@@ -661,14 +672,15 @@ export default function LessonPage() {
                 allowFullScreen
                 title={lesson?.title}
               />
-            ) : lesson?.storagePath?.startsWith('local:') ? (
-              /* ── Native HTML5 video player (absolute fill) ──────────────── */
+            ) : (lesson?.source === 'upload' || lesson?.storagePath || lesson?.videoUrl) ? (
+              /* ── Native HTML5 video — src resolved via buildVideoUrl() ─────── */
               <video
                 ref={videoRef}
-                src={buildVideoUrl(lessonId)}
+                src={buildVideoUrl(lesson)}
                 controls
                 playsInline
                 preload="metadata"
+                crossOrigin="anonymous"
                 style={{
                   position:   'absolute',
                   inset:       0,
@@ -683,12 +695,14 @@ export default function LessonPage() {
                   setVideoDuration(Math.floor(e.target.duration) || 0);
                 }}
                 onTimeUpdate={(e) => {
-                  // Update both state (for chapters/UI) and ref (for subtitle rAF loop)
                   currentTimeRef.current = e.target.currentTime;
                   const t = Math.floor(e.target.currentTime);
                   if (t !== currentTime) setCurrentTime(t);
                 }}
-                onError={(e) => console.error('Video load error:', e.target.error)}
+                onError={(e) => {
+                  const err = e.target.error;
+                  console.error('❌ Video load error:', err?.code, err?.message, 'src:', e.target.src);
+                }}
               />
             ) : (
               /* ── Placeholder while videoUrl is being prepared ───────────── */

@@ -10,8 +10,8 @@ const path    = require('path');
 const fs      = require('fs');
 const router  = express.Router();
 
-const { db }                               = require('../config/firebase');
-const { authMiddleware, requireInstructor } = require('../middleware/authMiddleware');
+const { db, getBucket }                            = require('../config/firebase');
+const { authMiddleware, requireInstructor }         = require('../middleware/authMiddleware');
 
 // Local disk directory for uploaded videos
 const UPLOADS_DIR = path.join(__dirname, '../../uploads/videos');
@@ -143,10 +143,33 @@ router.post('/upload', authMiddleware, requireInstructor, upload.single('file'),
 
     setImmediate(async () => {
       try {
-        // ── Phase A: Save video to local disk (instant, no cloud needed) ────
-        console.log(`\n💾 Writing ${fileName} to disk...`);
-        await fs.promises.writeFile(localFile, fileBuffer);
-        console.log(`   ✅ Video saved → ${localFile}`);
+        // ── Phase A: Save video to Firebase Storage (persistent across deployments) ──
+        console.log(`\n📤 Uploading ${fileName} to Firebase Storage...`);
+        let videoUrl = null;
+        try {
+          const bucket = getBucket();
+          const gcsPath = `videos/${lessonId}.${ext}`;
+          const file = bucket.file(gcsPath);
+          await file.save(fileBuffer, {
+            metadata: { contentType: fileMime },
+            resumable: false,
+          });
+          await file.makePublic();
+          videoUrl = `https://storage.googleapis.com/${bucket.name}/${gcsPath}`;
+          console.log(`   ✅ Firebase Storage upload done → ${videoUrl}`);
+
+          // Persist videoUrl so frontend can play directly from GCS
+          await db.collection('lessons').doc(lessonId).update({
+            videoUrl,
+            storagePath: `gs://${bucket.name}/${gcsPath}`,
+            updatedAt: new Date().toISOString(),
+          });
+        } catch (storageErr) {
+          // Storage upload failed — fall back to local disk (dev only)
+          console.warn(`⚠️  Firebase Storage upload failed, falling back to local disk:`, storageErr.message);
+          await fs.promises.writeFile(localFile, fileBuffer);
+          console.log(`   💾 Video saved locally → ${localFile}`);
+        }
 
         // ── Phase B: Transcribe + AI pipeline ──────────────────────────────
         await runUploadIngest(lessonId, fileBuffer, fileMime, fileName, language, title);
@@ -189,8 +212,8 @@ router.get('/:lessonId/status', authMiddleware, async (req, res, next) => {
 });
 
 // ── GET /api/lessons/:lessonId/video ──────────────────────────────────────────
-// Streams the uploaded video from local disk with full Range-request support.
-// The browser <video> element uses Range requests for seeking — we honour them here.
+// In production: lessons with videoUrl (Firebase Storage) redirect there directly.
+// In dev: streams from local disk with full Range-request support for seeking.
 router.get('/:lessonId/video', authMiddleware, async (req, res, next) => {
   try {
     const { lessonId } = req.params;
@@ -199,11 +222,18 @@ router.get('/:lessonId/video', authMiddleware, async (req, res, next) => {
     if (!doc.exists) return res.status(404).json({ error: 'Lesson not found.' });
 
     const data = doc.data();
-    if (!data.storagePath) {
+
+    // ── 1. Firebase Storage URL available — redirect (production path) ─────────
+    if (data.videoUrl) {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      return res.redirect(302, data.videoUrl);
+    }
+
+    // ── 2. Local disk fallback (dev / legacy) ─────────────────────────────────
+    if (!data.storagePath || !data.storagePath.startsWith('local:')) {
       return res.status(404).json({ error: 'No video file for this lesson.' });
     }
 
-    // storagePath is "local:LESSONID.ext"
     const fileName    = data.storagePath.replace(/^local:/, '');
     const filePath    = path.join(UPLOADS_DIR, fileName);
 
@@ -222,7 +252,6 @@ router.get('/:lessonId/video', authMiddleware, async (req, res, next) => {
     const rangeHeader = req.headers.range;
 
     if (rangeHeader) {
-      // ── Partial content — needed for scrubbing/seeking ────────────────────
       const parts     = rangeHeader.replace(/bytes=/, '').split('-');
       const start     = parseInt(parts[0], 10);
       const end       = parts[1] ? parseInt(parts[1], 10) : Math.min(start + 10 * 1024 * 1024, fileSize - 1);
@@ -236,7 +265,6 @@ router.get('/:lessonId/video', authMiddleware, async (req, res, next) => {
       });
       fs.createReadStream(filePath, { start, end }).pipe(res);
     } else {
-      // ── Full file ─────────────────────────────────────────────────────────
       res.writeHead(200, {
         'Content-Length': fileSize,
         'Content-Type':   contentType,
@@ -249,6 +277,8 @@ router.get('/:lessonId/video', authMiddleware, async (req, res, next) => {
     next(err);
   }
 });
+
+
 
 
 // ── GET /api/lessons/:lessonId ────────────────────────────────────────────────
