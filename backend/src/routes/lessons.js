@@ -157,7 +157,7 @@ router.post('/upload', authMiddleware, requireInstructor, upload.single('file'),
         let videoUrl = null;
         try {
           const cloudinaryUrl = await new Promise((resolve, reject) => {
-            const uploadStream = cloudinary.uploader.upload_stream(
+            const uploadStream = cloudinary.uploader.upload_chunked_stream(
               { resource_type: 'video', folder: 'kodr-aura/videos', public_id: lessonId },
               (error, result) => {
                 if (error) return reject(error);
