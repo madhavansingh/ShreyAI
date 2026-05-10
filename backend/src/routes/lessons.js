@@ -8,6 +8,15 @@ const multer  = require('multer');
 const { v4: uuidv4 } = require('uuid');
 const path    = require('path');
 const fs      = require('fs');
+const cloudinary = require('cloudinary').v2;
+const streamifier = require('streamifier');
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
+});
+
 const router  = express.Router();
 
 const { db, getBucket }                            = require('../config/firebase');
@@ -143,30 +152,33 @@ router.post('/upload', authMiddleware, requireInstructor, upload.single('file'),
 
     setImmediate(async () => {
       try {
-        // ── Phase A: Save video to Firebase Storage (persistent across deployments) ──
-        console.log(`\n📤 Uploading ${fileName} to Firebase Storage...`);
+        // ── Phase A: Save video to Cloudinary (persistent across deployments) ──
+        console.log(`\n📤 Uploading ${fileName} to Cloudinary...`);
         let videoUrl = null;
         try {
-          const bucket = getBucket();
-          const gcsPath = `videos/${lessonId}.${ext}`;
-          const file = bucket.file(gcsPath);
-          await file.save(fileBuffer, {
-            metadata: { contentType: fileMime },
-            resumable: false,
+          const cloudinaryUrl = await new Promise((resolve, reject) => {
+            const uploadStream = cloudinary.uploader.upload_stream(
+              { resource_type: 'video', folder: 'kodr-aura/videos', public_id: lessonId },
+              (error, result) => {
+                if (error) return reject(error);
+                resolve(result.secure_url);
+              }
+            );
+            streamifier.createReadStream(fileBuffer).pipe(uploadStream);
           });
-          await file.makePublic();
-          videoUrl = `https://storage.googleapis.com/${bucket.name}/${gcsPath}`;
-          console.log(`   ✅ Firebase Storage upload done → ${videoUrl}`);
+          
+          videoUrl = cloudinaryUrl;
+          console.log(`   ✅ Cloudinary upload done → ${videoUrl}`);
 
-          // Persist videoUrl so frontend can play directly from GCS
+          // Persist videoUrl so frontend can play directly
           await db.collection('lessons').doc(lessonId).update({
             videoUrl,
-            storagePath: `gs://${bucket.name}/${gcsPath}`,
+            storagePath: `cloudinary:${lessonId}`,
             updatedAt: new Date().toISOString(),
           });
         } catch (storageErr) {
           // Storage upload failed — fall back to local disk (dev only)
-          console.warn(`⚠️  Firebase Storage upload failed, falling back to local disk:`, storageErr.message);
+          console.warn(`⚠️  Cloudinary upload failed, falling back to local disk:`, storageErr.message);
           await fs.promises.writeFile(localFile, fileBuffer);
           console.log(`   💾 Video saved locally → ${localFile}`);
         }
