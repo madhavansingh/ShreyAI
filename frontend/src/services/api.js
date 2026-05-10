@@ -5,16 +5,25 @@
 // In production on roviq.xyz, Vercel proxies /api/* → Cloud Run (same origin, no CORS needed).
 // In local dev, use the full backend URL from .env.
 const BASE_URL =
-  import.meta.env.VITE_BACKEND_URL && import.meta.env.VITE_BACKEND_URL !== ''
+  import.meta.env.VITE_BACKEND_URL &&
+  import.meta.env.VITE_BACKEND_URL !== ''
     ? import.meta.env.VITE_BACKEND_URL
     : '';
+
+// For file uploads, bypass Vercel's 4.5MB proxy body limit and go directly to Cloud Run.
+// Falls back to BASE_URL (local dev) when VITE_BACKEND_DIRECT_URL is not set.
+const DIRECT_URL =
+  import.meta.env.VITE_BACKEND_DIRECT_URL &&
+  import.meta.env.VITE_BACKEND_DIRECT_URL !== ''
+    ? import.meta.env.VITE_BACKEND_DIRECT_URL
+    : BASE_URL;
 
 
 function getRole() {
   return localStorage.getItem('demo_role') || 'student';
 }
 
-async function apiFetch(path, options = {}) {
+async function apiFetch(path, options = {}, baseUrl = BASE_URL) {
   const headers = {
     'x-demo-role': getRole(),
     ...options.headers,
@@ -24,7 +33,7 @@ async function apiFetch(path, options = {}) {
     headers['Content-Type'] = 'application/json';
   }
 
-  const res  = await fetch(`${BASE_URL}${path}`, { ...options, headers });
+  const res  = await fetch(`${baseUrl}${path}`, { ...options, headers });
   const data = await res.json();
 
   if (!res.ok) {
@@ -43,7 +52,8 @@ export async function ingestYoutubeLesson(payload) {
 }
 
 export async function uploadLesson(formData) {
-  return apiFetch('/api/lessons/upload', { method: 'POST', body: formData });
+  // Use direct Cloud Run URL to bypass Vercel's 4.5MB proxy body limit
+  return apiFetch('/api/lessons/upload', { method: 'POST', body: formData }, DIRECT_URL);
 }
 
 export async function getLessonStatus(lessonId) {
