@@ -44,6 +44,18 @@ function transliterateDevanagari(text) {
 
 function normalizeWord(word, language) {
   if (!word) return '';
+
+  if (language === 'english') {
+    if (!hasDevanagari(word)) return word;
+    // Strip Devanagari characters
+    const englishOnly = word.replace(/[\u0900-\u097Fं-्]/g, '').trim();
+    // If we're left with just floating punctuation or empty, discard
+    if (/^[^\w\s]*$/.test(englishOnly)) {
+      return '';
+    }
+    return englishOnly;
+  }
+
   if (hasDevanagari(word)) return transliterateDevanagari(word);
   return word;
 }
