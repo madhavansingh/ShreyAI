@@ -13,6 +13,8 @@ import Navbar from '../components/Navbar';
 import ChatPanel from '../components/ChatPanel';
 import LessonStatusBadge from '../components/LessonStatusBadge';
 import VideoChapterBar from '../components/VideoChapterBar';
+import SubtitleOverlay, { SubtitleControls } from '../components/SubtitleOverlay';
+import { useSubtitles } from '../hooks/useSubtitles';
 import { getLesson, getLessons } from '../services/api';
 import { useLessonStatus } from '../hooks/useLessonStatus';
 
@@ -83,9 +85,11 @@ export default function LessonPage() {
   const [videoDuration, setVideoDuration] = useState(0);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
-  const playerRef   = useRef(null);  // YouTube iframe OR native <video>
-  const pollRef     = useRef(null);
-  const videoRef    = useRef(null);  // native <video> element ref
+  const playerRef      = useRef(null);  // YouTube iframe OR native <video>
+  const pollRef        = useRef(null);
+  const videoRef       = useRef(null);  // native <video> element ref
+  // Subtitle engine needs a live currentTime ref (avoids stale closure in rAF)
+  const currentTimeRef = useRef(0);
 
   const { status: liveStatus } = useLessonStatus(
     lessonId,
@@ -154,7 +158,9 @@ export default function LessonPage() {
       try {
         const data = JSON.parse(event.data);
         if (data.event === 'infoDelivery' && data.info?.currentTime !== undefined) {
-          setCurrentTime(Math.floor(data.info.currentTime));
+          const t = data.info.currentTime;
+          currentTimeRef.current = t;          // keep ref live for subtitle engine
+          setCurrentTime(Math.floor(t));
         }
       } catch { }
     };
@@ -163,7 +169,7 @@ export default function LessonPage() {
       playerRef.current?.contentWindow?.postMessage(
         JSON.stringify({ event: 'command', func: 'getCurrentTime', args: [] }), '*'
       );
-    }, 2000);
+    }, 500);   // poll every 500ms for smoother subtitle sync on YouTube
     return () => {
       window.removeEventListener('message', handler);
       clearInterval(pollRef.current);
@@ -194,6 +200,16 @@ export default function LessonPage() {
   const nextLesson   = allLessons[currentIdx + 1];
   const isReady      = (liveStatus || lesson?.status) === 'ready';
   const currentStatus = liveStatus || lesson?.status;
+
+  // ── Subtitle engine ────────────────────────────────────────────────────────
+  const isYouTube  = Boolean(lesson?.youtubeVideoId);
+  // For YouTube, pass currentTimeRef; for native video, pass videoRef directly
+  const subtitles  = useSubtitles(
+    lessonId,
+    isYouTube ? null : videoRef,
+    isYouTube ? currentTimeRef : null,
+    isYouTube
+  );
 
   // Progress of this module
   const readyCount = allLessons.filter(l => l.status === 'ready').length;
@@ -590,7 +606,10 @@ export default function LessonPage() {
               <span style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>Video Lecture</span>
               <span style={{ color: 'var(--accent)', fontSize: 14 }}>▶</span>
             </div>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              {/* Subtitle CC controls */}
+              {isReady && <SubtitleControls subtitles={subtitles} />}
+
               <button
                 onClick={() => setMidTab('ai')}
                 style={{
@@ -619,6 +638,9 @@ export default function LessonPage() {
 
           {/* Video */}
           <div style={{ flex: 1, background: '#000', position: 'relative', minHeight: 0 }}>
+            {/* ── Subtitle overlay ────────────────────────────────────── */}
+            <SubtitleOverlay subtitles={subtitles} />
+
             {/* ── Chapter bar overlay (bottom of video) ──────────────── */}
             {lesson?.topicSegments?.length > 0 && (
               <VideoChapterBar
@@ -661,6 +683,8 @@ export default function LessonPage() {
                   setVideoDuration(Math.floor(e.target.duration) || 0);
                 }}
                 onTimeUpdate={(e) => {
+                  // Update both state (for chapters/UI) and ref (for subtitle rAF loop)
+                  currentTimeRef.current = e.target.currentTime;
                   const t = Math.floor(e.target.currentTime);
                   if (t !== currentTime) setCurrentTime(t);
                 }}

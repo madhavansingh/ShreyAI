@@ -348,4 +348,41 @@ router.post('/:lessonId/regenerate-chapters', authMiddleware, async (req, res, n
   }
 });
 
+
+// ── GET /api/lessons/:lessonId/transcript ─────────────────────────────────────
+// Returns ordered transcript chunks with startTime/endTime for subtitle sync.
+// Lightweight — only returns text + timing, no embeddings.
+router.get('/:lessonId/transcript', authMiddleware, async (req, res, next) => {
+  try {
+    const { lessonId } = req.params;
+
+    // Use chunk cache for fast repeated reads
+    const { getChunks } = require('../services/chunkCache');
+    const allChunks = await getChunks(lessonId);
+
+    if (!allChunks || allChunks.length === 0) {
+      return res.json({
+        success: true,
+        chunks:  [],
+        message: 'No transcript available yet.',
+      });
+    }
+
+    // Strip heavy fields, return only what the subtitle engine needs
+    const lightweight = allChunks.map(c => ({
+      chunkIndex: c.chunkIndex,
+      text:       c.text,
+      startTime:  c.startTime,
+      endTime:    c.endTime,
+      startLabel: c.startLabel,
+      endLabel:   c.endLabel,
+    }));
+
+    res.json({ success: true, chunks: lightweight, total: lightweight.length });
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;
+
