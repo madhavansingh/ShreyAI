@@ -1,22 +1,25 @@
 /**
  * components/SubtitleOverlay.jsx
  * YouTube-style subtitle overlay:
- *   - Shows rolling window of last N words as a continuous stream
- *   - No flicker: only re-renders when displayWords array actually changes
- *   - CC button + language selector in the video toolbar
+ *   - Shows the current sentence building up word-by-word.
+ *   - Clears and restarts when a new sentence block begins.
+ *   - Clean, readable styling with smooth wipe/fade transitions.
+ *   - CC button + language selector in the video toolbar.
  */
 
 import React, { useState, useRef, useEffect, memo } from 'react';
 
 // ── Split word array into display lines ───────────────────────────────────────
-function toLines(words, wordsPerLine = 7) {
-  if (!words.length) return [];
-  // Always show the LAST two lines worth
+function toLines(words, wordsPerLine = 10) {
+  if (!words || !words.length) return [];
   const lines = [];
   for (let i = 0; i < words.length; i += wordsPerLine) {
     lines.push(words.slice(i, i + wordsPerLine).join(' '));
   }
-  return lines.slice(-2); // keep only last 2 lines
+  // If the sentence gets too long, we might want to restrict to last N lines,
+  // but since we clear per chunk, showing all lines is usually best.
+  // We'll restrict to last 3 lines just in case chunks are huge.
+  return lines.slice(-3);
 }
 
 // ── CC Controls (placed in video toolbar) ────────────────────────────────────
@@ -144,10 +147,23 @@ export function SubtitleControls({ subtitles }) {
   );
 }
 
-// ── Main overlay — memoized so it only re-renders when displayWords changes ───
+// ── Main overlay — memoized so it only re-renders when captionState changes ───
 const SubtitleOverlay = memo(function SubtitleOverlay({ subtitles }) {
-  const { enabled, displayWords } = subtitles;
-  const lines = toLines(displayWords);
+  const { enabled, captionState } = subtitles;
+  const { words, isNew } = captionState || { words: [], isNew: false };
+  
+  const lines = toLines(words);
+
+  // When 'isNew' triggers, we force a re-animation of the container
+  // by utilizing a unique key based on the first word or empty.
+  // Actually, standard way is to just let CSS handle new text addition smoothly,
+  // but if it's a completely new sentence, a subtle fade in looks nice.
+  
+  // Create a stable key for the current sentence block
+  const blockKeyRef = useRef(0);
+  if (isNew) {
+    blockKeyRef.current += 1;
+  }
 
   if (!enabled || lines.length === 0) return null;
 
@@ -155,9 +171,13 @@ const SubtitleOverlay = memo(function SubtitleOverlay({ subtitles }) {
     <>
       <style>{`
         @keyframes ccSpin { to { transform: rotate(360deg); } }
-        @keyframes subFadeIn {
-          from { opacity: 0; transform: translateY(5px); }
+        @keyframes blockFadeIn {
+          from { opacity: 0; transform: translateY(4px); }
           to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes wordFadeIn {
+          from { opacity: 0.2; }
+          to   { opacity: 1; }
         }
       `}</style>
 
@@ -166,42 +186,64 @@ const SubtitleOverlay = memo(function SubtitleOverlay({ subtitles }) {
         aria-label="Video subtitles"
         style={{
           position: 'absolute',
-          bottom: 52,
+          bottom: '8%', // slightly adaptive positioning
           left: '50%',
           transform: 'translateX(-50%)',
           zIndex: 200,
-          maxWidth: '84%',
+          maxWidth: '85%',
           pointerEvents: 'none',
           width: 'max-content',
-          animation: 'subFadeIn 0.15s ease',
         }}
       >
-        <div style={{
-          background: 'rgba(6,6,10,0.84)',
-          backdropFilter: 'blur(10px)',
-          borderRadius: 9,
-          padding: '7px 16px 8px',
-          textAlign: 'center',
-          border: '1px solid rgba(255,255,255,0.06)',
-          boxShadow: '0 4px 20px rgba(0,0,0,0.55)',
-        }}>
+        <div 
+          key={blockKeyRef.current} // Retriggers animation on new sentence
+          style={{
+            background: 'rgba(0,0,0,0.75)', // slightly darker, more classic Netflix/YT style
+            backdropFilter: 'blur(4px)',
+            borderRadius: 6,
+            padding: '8px 16px',
+            textAlign: 'center',
+            boxShadow: '0 2px 12px rgba(0,0,0,0.6)',
+            animation: 'blockFadeIn 0.2s ease-out',
+          }}
+        >
           {lines.map((line, i) => (
-            <p
+            <div
               key={i}
               style={{
-                margin: i === 0 ? 0 : '1px 0 0',
-                fontSize: 'clamp(13px, 1.35vw, 16px)',
-                fontWeight: 600,
-                lineHeight: 1.5,
+                margin: i === 0 ? 0 : '4px 0 0',
+                fontSize: 'clamp(14px, 1.8vw, 22px)', // slightly larger for readability
+                fontWeight: 600, // Medium-bold
+                lineHeight: 1.4,
                 color: '#ffffff',
-                whiteSpace: 'nowrap',
-                fontFamily: '"Inter", "Segoe UI", system-ui, sans-serif',
-                textShadow: '0 1px 6px rgba(0,0,0,0.9)',
-                letterSpacing: '0.01em',
+                fontFamily: '"Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+                textShadow: '1px 1px 2px rgba(0,0,0,0.8), 0 0 8px rgba(0,0,0,0.5)', // Stronger text shadow
+                letterSpacing: '0.02em',
+                whiteSpace: 'pre-wrap', // allow natural wrapping if needed
               }}
             >
-              {line}
-            </p>
+              {/* If we want to animate individual words slightly, we can map over words here.
+                  For a YouTube style progressive reveal, just showing the text is usually enough,
+                  but a tiny fade on the last word looks very polished. */}
+              {line.split(' ').map((word, wordIndex, arr) => {
+                // If it's the very last word in the entire caption block, give it a tiny fade
+                const isLastLine = i === lines.length - 1;
+                const isLastWord = wordIndex === arr.length - 1;
+                const animate = isLastLine && isLastWord && !isNew;
+                
+                return (
+                  <span 
+                    key={wordIndex} 
+                    style={{ 
+                      marginRight: wordIndex === arr.length - 1 ? 0 : '0.25em',
+                      animation: animate ? 'wordFadeIn 0.1s ease-out' : 'none'
+                    }}
+                  >
+                    {word}
+                  </span>
+                );
+              })}
+            </div>
           ))}
         </div>
       </div>
