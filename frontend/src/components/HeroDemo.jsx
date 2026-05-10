@@ -9,7 +9,54 @@ import { useChat } from '../hooks/useChat';
 import { useLessonStatus } from '../hooks/useLessonStatus';
 import ChatMessage from './ChatMessage';
 
+/* ── Markdown renderer (landing page) ───────────────────────────── */
+function inlineFormatHero(str) {
+  return str
+    .replace(/\*\*(.+?)\*\*/g, '<strong style="color:#fff;font-weight:700">$1</strong>')
+    .replace(/\*(.+?)\*/g,     '<em style="color:#e2c97e">$1</em>')
+    .replace(/`(.+?)`/g,       '<code style="background:rgba(255,255,255,.08);padding:1px 6px;border-radius:4px;font-family:monospace;font-size:13px;color:#7dd3fc">$1</code>');
+}
+function renderMarkdownHero(text) {
+  if (!text) return null;
+  const lines = text.split('\n');
+  const elements = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line.startsWith('### ')) {
+      elements.push(<div key={i} style={{ display:'flex',alignItems:'center',gap:8,margin:'20px 0 8px',borderBottom:'1px solid rgba(255,107,0,.15)',paddingBottom:6 }}><span style={{ fontSize:16,fontWeight:800,color:'#fff' }} dangerouslySetInnerHTML={{ __html: inlineFormatHero(line.slice(4)) }} /></div>);
+    } else if (line.startsWith('## ')) {
+      elements.push(<h2 key={i} style={{ margin:'24px 0 10px',fontSize:18,fontWeight:800,color:'#FF6B00' }} dangerouslySetInnerHTML={{ __html: inlineFormatHero(line.slice(3)) }} />);
+    } else if (line.startsWith('# ')) {
+      elements.push(<h1 key={i} style={{ margin:'0 0 14px',fontSize:22,fontWeight:900,color:'#fff' }} dangerouslySetInnerHTML={{ __html: inlineFormatHero(line.slice(2)) }} />);
+    } else if (/^[-]{3,}$/.test(line.trim())) {
+      elements.push(<hr key={i} style={{ border:'none',borderTop:'1px solid #1e1e1e',margin:'16px 0' }} />);
+    } else if (line.startsWith('- ') || line.startsWith('* ')) {
+      const items = [];
+      while (i < lines.length && (lines[i].startsWith('- ') || lines[i].startsWith('* '))) { items.push(lines[i].slice(2)); i++; }
+      elements.push(<ul key={`ul-${i}`} style={{ margin:'6px 0 10px',paddingLeft:18,display:'flex',flexDirection:'column',gap:5 }}>{items.map((it,j)=><li key={j} style={{ color:'#ccc',fontSize:14,lineHeight:1.65 }} dangerouslySetInnerHTML={{ __html: inlineFormatHero(it) }} />)}</ul>);
+      continue;
+    } else if (/^\d+\.\s/.test(line)) {
+      const items = [];
+      while (i < lines.length && /^\d+\.\s/.test(lines[i])) { items.push(lines[i].replace(/^\d+\.\s/,'')); i++; }
+      elements.push(<ol key={`ol-${i}`} style={{ margin:'6px 0 10px',paddingLeft:22,display:'flex',flexDirection:'column',gap:5 }}>{items.map((it,j)=><li key={j} style={{ color:'#ccc',fontSize:14,lineHeight:1.65 }} dangerouslySetInnerHTML={{ __html: inlineFormatHero(it) }} />)}</ol>);
+      continue;
+    } else if (line.startsWith('> ')) {
+      elements.push(<blockquote key={i} style={{ margin:'10px 0',padding:'8px 14px',borderLeft:'3px solid #FF6B00',background:'rgba(255,107,0,.06)',borderRadius:'0 8px 8px 0' }}><p style={{ margin:0,color:'#aaa',fontSize:14,fontStyle:'italic' }} dangerouslySetInnerHTML={{ __html: inlineFormatHero(line.slice(2)) }} /></blockquote>);
+    } else if (line.trim() === '') {
+      elements.push(<div key={i} style={{ height:6 }} />);
+    } else {
+      elements.push(<p key={i} style={{ margin:'4px 0',color:'#ccc',fontSize:14,lineHeight:1.7 }} dangerouslySetInnerHTML={{ __html: inlineFormatHero(line) }} />);
+    }
+    i++;
+  }
+  return elements;
+}
+
+
 /* ── API helpers ─────────────────────────────────────────────────── */
+const BACKEND = 'https://sheryai-backend-471820890563.asia-south1.run.app';
+
 const post = (path, body, role = 'instructor') =>
   fetch(`/api${path}`, {
     method: 'POST',
@@ -17,8 +64,9 @@ const post = (path, body, role = 'instructor') =>
     body: JSON.stringify(body),
   }).then(r => r.json());
 
+// File uploads bypass Vercel's 4.5MB proxy limit → go directly to Cloud Run
 const postForm = (path, fd) =>
-  fetch(`/api${path}`, {
+  fetch(`${BACKEND}/api${path}`, {
     method: 'POST',
     headers: { 'x-demo-role': 'instructor' },
     body: fd,
@@ -406,19 +454,107 @@ export function AIVideoChat({ lesson, onBack }) {
 
       {/* Summary modal */}
       {showSum && (
-        <div style={{ position:'fixed',inset:0,zIndex:1000,background:'rgba(0,0,0,.8)',backdropFilter:'blur(8px)',display:'flex',alignItems:'center',justifyContent:'center',padding:24 }} onClick={() => setShowSum(false)}>
-          <div style={{ background:'#0e0e0e',border:'1px solid #222',borderRadius:20,padding:28,maxWidth:640,width:'100%',maxHeight:'80vh',display:'flex',flexDirection:'column',boxShadow:'0 25px 80px rgba(0,0,0,.7)' }} onClick={e=>e.stopPropagation()}>
-            <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20 }}>
-              <h3 style={{ margin:0,color:'#fff',fontSize:18,fontWeight:700 }}>📄 Lecture Summary</h3>
-              <button onClick={() => setShowSum(false)} style={{ background:'none',border:'none',color:'#555',cursor:'pointer',fontSize:20 }}>✕</button>
+        <div style={{ position:'fixed',inset:0,zIndex:1000,background:'rgba(0,0,0,.8)',backdropFilter:'blur(10px)',display:'flex',alignItems:'center',justifyContent:'center',padding:24 }} onClick={() => setShowSum(false)}>
+          <div style={{ background:'#0e0e0e',border:'1px solid #1e1e1e',borderRadius:24,width:'100%',maxWidth:680,maxHeight:'88vh',display:'flex',flexDirection:'column',boxShadow:'0 30px 100px rgba(0,0,0,.8)',overflow:'hidden' }} onClick={e=>e.stopPropagation()}>
+            {/* Header */}
+            <div style={{ padding:'20px 24px 0',flexShrink:0 }}>
+              <div style={{ display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:16 }}>
+                <div>
+                  <div style={{ display:'flex',alignItems:'center',gap:10,marginBottom:4 }}>
+                    <span style={{ fontSize:22 }}>📄</span>
+                    <h3 style={{ margin:0,color:'#fff',fontSize:18,fontWeight:800 }}>Lecture Summary</h3>
+                  </div>
+                  {lesson?.title && <p style={{ margin:0,fontSize:12,color:'#555' }}>📚 {lesson.title}</p>}
+                </div>
+                <button onClick={() => setShowSum(false)} style={{ background:'none',border:'1px solid #222',borderRadius:8,color:'#555',cursor:'pointer',fontSize:18,padding:'4px 10px',lineHeight:1 }}>✕</button>
+              </div>
+              <div style={{ display:'flex',justifyContent:'flex-end',paddingBottom:16,borderBottom:'1px solid #1a1a1a' }}>
+                <button
+                  onClick={async () => {
+                    if (!summary || sumLoad) return;
+                    const { jsPDF } = await import('jspdf');
+
+                    // Sanitize helper — strips emoji & non-Latin-1 so Helvetica renders correctly
+                    const san = (s) => {
+                      const map = { '\uD83C\uDFAF':'TL;DR - ','\uD83E\uDDE0':'Core Concepts - ','\uD83D\uDCCB':'Key Points - ','\uD83D\uDCA1':'Idea: ','\u26A1':'Quick-Recall: ','\uD83D\uDD11':'Key: ','\uD83D\uDCCC':'','\u2705':'[OK] ','\uD83D\uDCDD':'Note: ','\uD83D\uDE80':'','\u2B50':'','\uD83D\uDCCA':'','\uD83D\uDD25':'','\uD83D\uDCAC':'','\u26A0\uFE0F':'[!] ','\uD83D\uDC49':'> ','\uD83C\uDFC1':'' };
+                      let o = s;
+                      for (const [k,v] of Object.entries(map)) o = o.split(k).join(v);
+                      return o.replace(/[\u2014\u2013]/g,'-').replace(/[\u201C\u201D]/g,'"').replace(/[\u2018\u2019]/g,"'").replace(/\u2026/g,'...').replace(/\u2022/g,'*').replace(/[\u2500-\u257F]/g,'-').replace(/\u00A0/g,' ').replace(/[^\x00-\xFF]/g,'').trim();
+                    };
+
+                    const doc = new jsPDF({ unit:'mm', format:'a4' });
+                    const pageW=doc.internal.pageSize.getWidth(), pageH=doc.internal.pageSize.getHeight(), margin=18, maxW=pageW-margin*2;
+                    let y=margin;
+                    const checkY=(n=8)=>{ if(y+n>pageH-margin){doc.addPage();y=margin+6;} };
+
+                    // Header
+                    doc.setFillColor(255,107,0); doc.rect(0,0,pageW,14,'F');
+                    doc.setTextColor(255,255,255); doc.setFontSize(11); doc.setFont('helvetica','bold');
+                    doc.text('SheryAI - AI Lecture Summary',margin,9.5);
+                    doc.setFontSize(9); doc.setFont('helvetica','normal');
+                    doc.text(new Date().toLocaleDateString('en-US',{day:'2-digit',month:'short',year:'numeric'}),pageW-margin,9.5,{align:'right'});
+                    y=22;
+
+                    // Title
+                    const safeT = san(lesson?.title||'Lecture Summary');
+                    doc.setTextColor(20,20,20); doc.setFontSize(15); doc.setFont('helvetica','bold');
+                    const tl=doc.splitTextToSize(safeT,maxW); doc.text(tl,margin,y); y+=tl.length*7+6;
+                    doc.setDrawColor(255,107,0); doc.setLineWidth(0.7); doc.line(margin,y,pageW-margin,y); y+=10;
+
+                    // Body
+                    for(const raw of summary.split('\n')){
+                      const stripped=raw.replace(/\*\*(.+?)\*\*/g,'$1').replace(/\*(.+?)\*/g,'$1').replace(/`(.+?)`/g,'"$1"').replace(/^#{1,3}\s+/,'').replace(/^[-*]\s+/,'').replace(/^>\s+/,'').replace(/^---+$/,'');
+                      const clean=san(stripped);
+                      if(!clean){y+=2;continue;}
+                      const isH=/^#{1,3}\s/.test(raw), isB=/^[-*\u2022]\s/.test(raw.trim()), isN=/^\d+\.\s/.test(raw), isHR=/^---+$/.test(raw.trim()), isQA=/^[QA]:\s/.test(clean);
+                      if(isH){
+                        checkY(14);
+                        if(y>40){doc.setDrawColor(235,235,235);doc.setLineWidth(0.25);doc.line(margin,y-3,pageW-margin,y-3);}
+                        doc.setFontSize(11.5); doc.setFont('helvetica','bold'); doc.setTextColor(200,80,0);
+                        const hl=doc.splitTextToSize(clean,maxW); checkY(hl.length*6.5+6); doc.text(hl,margin,y); y+=hl.length*6.5+6;
+                      } else if(isB){
+                        checkY(7); doc.setFontSize(10); doc.setFont('helvetica','normal'); doc.setTextColor(40,40,40);
+                        doc.text('-',margin+1,y);
+                        const bl=doc.splitTextToSize(clean,maxW-7); checkY(bl.length*5.5+3); doc.text(bl,margin+6,y); y+=bl.length*5.5+3;
+                      } else if(isN){
+                        checkY(7); doc.setFontSize(10); doc.setFont('helvetica','normal'); doc.setTextColor(40,40,40);
+                        const nl=doc.splitTextToSize(clean,maxW-6); checkY(nl.length*5.5+3); doc.text(nl,margin+4,y); y+=nl.length*5.5+3;
+                      } else if(isHR){
+                        checkY(6); doc.setDrawColor(210,210,210); doc.setLineWidth(0.3); doc.line(margin,y,pageW-margin,y); y+=6;
+                      } else if(isQA){
+                        checkY(7); const isQ=clean.startsWith('Q:');
+                        doc.setFontSize(10); doc.setFont('helvetica',isQ?'bold':'normal'); doc.setTextColor(isQ?20:55,isQ?20:55,isQ?20:55);
+                        const ql=doc.splitTextToSize(clean,maxW); checkY(ql.length*5.5+2); doc.text(ql,margin,y); y+=ql.length*5.5+(isQ?1.5:5);
+                      } else {
+                        checkY(7); doc.setFontSize(10); doc.setFont('helvetica','normal'); doc.setTextColor(50,50,50);
+                        const pl=doc.splitTextToSize(clean,maxW); checkY(pl.length*5.5+2); doc.text(pl,margin,y); y+=pl.length*5.5+3;
+                      }
+                    }
+
+                    // Footer
+                    const total=doc.internal.getNumberOfPages();
+                    for(let p=1;p<=total;p++){doc.setPage(p);doc.setFontSize(8);doc.setTextColor(180,180,180);doc.text(`SheryAI * ${safeT} * Page ${p} of ${total}`,pageW/2,pageH-8,{align:'center'});}
+                    doc.save(`SheryAI_Summary_${safeT.replace(/\s+/g,'_').slice(0,40)}.pdf`);
+                  }}
+                  disabled={!summary || sumLoad}
+                  style={{ display:'flex',alignItems:'center',gap:6,padding:'7px 16px',borderRadius:10,border:'none',cursor:(!summary||sumLoad)?'not-allowed':'pointer',background:(!summary||sumLoad)?'#1a1a1a':'rgba(255,107,0,.15)',color:(!summary||sumLoad)?'#444':'#FF6B00',fontSize:12,fontWeight:700,transition:'all .2s' }}
+                >⬇ Download PDF</button>
+              </div>
             </div>
-            <div style={{ flex:1,overflowY:'auto',color:'#aaa',fontSize:14,lineHeight:1.7 }}>
-              {sumLoad ? <div style={{ textAlign:'center',padding:40,color:'#555' }}>⟳ Generating summary…</div>
-                : <pre style={{ margin:0,fontFamily:'inherit',whiteSpace:'pre-wrap' }}>{summary}</pre>}
+            {/* Body */}
+            <div style={{ flex:1,overflowY:'auto',padding:'20px 24px 24px' }}>
+              {sumLoad
+                ? <div style={{ display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:'60px 0',gap:16 }}>
+                    <div style={{ width:48,height:48,borderRadius:'50%',border:'3px solid #1a1a1a',borderTop:'3px solid #FF6B00',animation:'spin 0.8s linear infinite' }} />
+                    <p style={{ color:'#555',margin:0,fontSize:14 }}>Generating summary with AI…</p>
+                  </div>
+                : <div style={{ color:'#ccc',fontSize:14,lineHeight:1.7 }}>{renderMarkdownHero(summary)}</div>
+              }
             </div>
           </div>
         </div>
       )}
+
 
       <style>{`
         @keyframes bounce { 0%,80%,100%{transform:translateY(0);opacity:.4} 40%{transform:translateY(-6px);opacity:1} }

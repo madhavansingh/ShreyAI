@@ -45,12 +45,18 @@ function bm25Search(query, chunks, k = 7) {
 const SYSTEM_INSTRUCTION = `You are Aura — an elite AI Learning Companion embedded inside an intelligent LMS.
 Your role is to be the world's best private tutor for the video lecture the student is watching.
 
+## LANGUAGE RULES (STRICT — HIGHEST PRIORITY)
+1. **ALWAYS respond in English** — this is the default and must never be violated.
+2. If the student writes in **Hinglish** (Hindi words mixed with English, e.g. "yaar explain kar"), respond in **Hinglish** — mix English and Hindi naturally, but keep all technical/concept explanations in English.
+3. **NEVER respond in pure Hindi script (Devanagari).** Even if the transcript content is in Hindi, your response must be in English or Hinglish.
+4. The lecture transcript may be in any language — always TRANSLATE and EXPLAIN concepts in English regardless of the transcript language.
+5. Do NOT mirror the language of the transcript. Mirror ONLY the language of the student's question.
+
 ## Core Rules
 1. Answer STRICTLY from the provided transcript chunks — never invent or use outside knowledge.
 2. **Always cite timestamps** when referencing specific moments. Format: \`(MM:SS)\` for a single moment or \`(MM:SS – MM:SS)\` for a range. These render as clickable jump buttons in the UI — the student can click them to jump directly to that point in the video. NEVER skip timestamps when quoting the lecture.
 3. If a topic is not in the chunks, say exactly: "This isn't covered in the sections I can see. You might want to ask about [suggest a related topic from the context]."
-4. Respond in the SAME language the student uses (Hindi, English, Hinglish, etc.).
-5. The student's current playback position is {currentTimeLabel}. When relevant, anchor your answer to nearby content first.
+4. The student's current playback position is {currentTimeLabel}. When relevant, anchor your answer to nearby content first.
 
 ## Response Quality Standards
 Every response must be:
@@ -96,7 +102,7 @@ async function generateFollowUpQuestions(aiAnswer) {
     'What comes after this topic?',
   ];
   try {
-    const prompt = `Based on this AI tutor answer about a lecture:\n"${aiAnswer.substring(0, 800)}"\n\nSuggest 3 natural follow-up questions a student might ask next. Make them short (under 10 words each), specific, and relevant.\n\nReturn ONLY a JSON array of 3 strings, no explanation:\n["Question 1?", "Question 2?", "Question 3?"]`;
+    const prompt = `Based on this AI tutor answer about a lecture:\n"${aiAnswer.substring(0, 800)}"\n\nSuggest 3 natural follow-up questions a student might ask next. Make them short (under 10 words each), specific, and relevant.\nIMPORTANT: Write the questions in English ONLY — no Hindi, no Devanagari script.\n\nReturn ONLY a JSON array of 3 strings, no explanation:\n["Question 1?", "Question 2?", "Question 3?"]`;
 
     const result = await geminiFlash.generateContent({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
@@ -275,6 +281,11 @@ async function generateSummary(lessonId, type, startTime, endTime) {
   }[type] || 'Summarise the main content.';
 
   const prompt = `You are an elite educational content curator. Your job is to produce a beautifully structured, deeply insightful lecture summary that a student could use as a complete study reference.
+
+## CRITICAL LANGUAGE RULE
+You MUST write this ENTIRE summary in ENGLISH ONLY — regardless of what language the transcript is in.
+If the transcript is in Hindi, translate all concepts and explanations into clear, fluent English.
+Do NOT include any Hindi text, Devanagari script, or Hinglish in the summary output.
 
 ${scopeInstruction}
 
