@@ -307,36 +307,136 @@ ${context}`;
   return result.response.text();
 }
 
-// ── Quiz generator ───────────────────────────────────────────────────────────
-async function generateQuiz(lessonId, count = 5, type = 'mcq') {
-  const allChunks = await getChunks(lessonId);
-  if (!allChunks?.length) throw new Error('No transcript data found');
+// ── Quiz generator helpers ────────────────────────────────────────────────────
+const BATCH_SIZE = 5; // NVIDIA can reliably produce 5 questions per call
 
-  // Sample chunks spread across the full lecture
-  const step = Math.max(1, Math.floor(allChunks.length / 20));
-  const sampled = allChunks.filter((_, i) => i % step === 0).slice(0, 20);
+function buildQuizPrompt(batchCount, difficulty, context, usedTopics = []) {
+  const difficultyNote = difficulty === 'mixed'
+    ? `Vary the difficulty: some questions test basic recall, some test application, some require deep analysis.`
+    : difficulty === 'easy'   ? `All questions must be foundational — test basic definitions and recall.`
+    : difficulty === 'hard'   ? `All questions must require advanced analysis, inference, or synthesis of ideas from the transcript.`
+    :                           `All questions must test understanding and application of concepts from the transcript.`;
 
-  const context = sampled.map(c => `[${c.startLabel}] ${c.text}`).join('\n\n');
+  const avoidNote = usedTopics.length
+    ? `\nIMPORTANT: Do NOT repeat these topics already covered: ${usedTopics.join(', ')}.`
+    : '';
 
-  const prompt = type === 'mcq'
-    ? `Based on this lecture transcript, generate exactly ${count} multiple choice questions.
-Return ONLY a valid JSON array with this exact structure:
-[{"question":"...","options":["A) ...","B) ...","C) ...","D) ..."],"answer":"A","explanation":"...","startLabel":"MM:SS"}]
+  return `You are an expert educator. Generate exactly ${batchCount} MCQ questions from the transcript.
 
-TRANSCRIPT:
-${context}`
-    : `Based on this lecture transcript, generate exactly ${count} short-answer questions with answers.
-Return ONLY a valid JSON array:
-[{"question":"...","answer":"...","explanation":"...","startLabel":"MM:SS"}]
+${difficultyNote}${avoidNote}
+
+Rules:
+1. Base questions ONLY on the transcript. Each tests a DIFFERENT concept.
+2. "answer" = single LETTER only: A, B, C, or D.
+3. "explanation" = 1-2 sentences explaining why correct.
+4. "startLabel" = timestamp string like "1:23".
+5. "difficulty" = easy | medium | hard.
+6. "topic" = 2-4 word label for the concept.
+
+RETURN ONLY RAW JSON — NO MARKDOWN, NO CODE BLOCKS.
+Start with [ and end with ].
+
+Example:
+[{"question":"What is X?","options":["A) foo","B) bar","C) baz","D) qux"],"answer":"A","explanation":"Because X is foo.","startLabel":"0:30","difficulty":"easy","topic":"Core Concept"}]
 
 TRANSCRIPT:
 ${context}`;
+}
 
-  const result = await geminiFlash.generateContent(prompt);
-  const text   = result.response.text().trim();
-  const match  = text.match(/\[[\s\S]*\]/);
-  if (!match) throw new Error('Failed to generate quiz questions');
-  return JSON.parse(match[0]);
+function parseQuizResponse(raw) {
+  // Strip markdown fences
+  let cleaned = raw
+    .replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
+
+  const match = cleaned.match(/\[[\s\S]*\]/);
+  if (!match) {
+    console.error('[quiz] Unexpected AI output (first 400 chars):', cleaned.slice(0, 400));
+    return [];
+  }
+
+  let parsed;
+  try { parsed = JSON.parse(match[0]); }
+  catch (e) {
+    console.error('[quiz] JSON parse error. Match (first 300 chars):', match[0].slice(0, 300));
+    return [];
+  }
+
+  if (!Array.isArray(parsed)) return [];
+
+  return parsed
+    .filter(q => q.question && Array.isArray(q.options) && q.options.length >= 2 && q.answer)
+    .map(q => ({
+      question:    q.question,
+      options:     q.options.slice(0, 4),
+      answer:      String(q.answer).trim().charAt(0).toUpperCase(),
+      explanation: q.explanation || '',
+      startLabel:  q.startLabel  || '',
+      difficulty:  q.difficulty  || 'medium',
+      topic:       q.topic       || '',
+    }));
+}
+
+// ── Quiz generator ────────────────────────────────────────────────────────────
+async function generateQuiz(lessonId, count = 10, type = 'mcq', difficulty = 'mixed') {
+  const allChunks = await getChunks(lessonId);
+  if (!allChunks?.length) throw new Error('No transcript data found for this lesson.');
+
+  // Build compact context (10 chunks × 250 chars each ≈ 2500 chars input)
+  const maxChunks = 10;
+  const step = Math.max(1, Math.floor(allChunks.length / maxChunks));
+  const sampled = allChunks.filter((_, i) => i % step === 0).slice(0, maxChunks);
+  const context = sampled
+    .map(c => `[${c.startLabel || '0:00'}] ${c.text.slice(0, 250)}`)
+    .join('\n\n');
+
+  // Split into batches of BATCH_SIZE (e.g. 15 → [5, 5, 5])
+  const batches = [];
+  for (let i = 0; i < count; i += BATCH_SIZE) {
+    batches.push(Math.min(BATCH_SIZE, count - i));
+  }
+
+  console.log(`[quiz] Generating ${count} questions in ${batches.length} batch(es) of ${BATCH_SIZE}`);
+
+  // Run batches sequentially with retry on empty response
+  const allQuestions = [];
+  for (let b = 0; b < batches.length; b++) {
+    let batch = [];
+    const maxRetries = 2;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      // Don't send avoidTopics — long lists cause NVIDIA to return blank
+      const prompt = buildQuizPrompt(batches[b], difficulty, context, []);
+      const result = await geminiFlash.generateContent(prompt);
+      const raw    = result.response.text().trim();
+      batch        = parseQuizResponse(raw);
+
+      if (batch.length > 0) break;
+      console.warn(`[quiz] Batch ${b + 1} attempt ${attempt + 1} returned 0 — retrying...`);
+      await new Promise(r => setTimeout(r, 1500));
+    }
+
+    console.log(`[quiz] Batch ${b + 1}/${batches.length} → got ${batch.length} questions`);
+    allQuestions.push(...batch);
+
+    // Delay between batches
+    if (b < batches.length - 1) await new Promise(r => setTimeout(r, 800));
+  }
+
+  if (allQuestions.length === 0) {
+    throw new Error('AI could not generate any valid questions. Please try again.');
+  }
+
+  // Deduplicate by question text (in case of overlap between batches)
+  const seen = new Set();
+  const unique = allQuestions.filter(q => {
+    const key = q.question.toLowerCase().slice(0, 60);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  console.log(`[quiz] ✅ Final: ${unique.length} unique questions`);
+  return unique.slice(0, count);
 }
 
 module.exports = {

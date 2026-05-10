@@ -12,9 +12,7 @@ export default defineConfig({
         target: 'http://localhost:5001',
         changeOrigin: true,
         secure: false,
-        headers: {
-          'x-demo-role': 'student',   // default role for proxied requests (incl. <video> streaming)
-        },
+        // NOTE: do NOT set x-demo-role here — each request sends its own role header
       },
     },
   },

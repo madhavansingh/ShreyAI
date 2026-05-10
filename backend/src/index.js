@@ -41,6 +41,8 @@ const allowedOrigins = [
   process.env.FRONTEND_URL || 'http://localhost:5173',
   'http://localhost:5174',
   'http://localhost:3000',
+  'https://roviq.xyz',
+  'https://www.roviq.xyz',
 ];
 
 app.use(
@@ -48,6 +50,8 @@ app.use(
     origin: (origin, callback) => {
       // Allow requests with no origin (mobile apps, curl, Postman)
       if (!origin) return callback(null, true);
+      // Allow any Vercel deployment (production + previews)
+      if (/\.vercel\.app$/.test(origin)) return callback(null, true);
       if (allowedOrigins.includes(origin)) return callback(null, true);
       callback(new Error(`CORS policy: origin ${origin} is not allowed`));
     },

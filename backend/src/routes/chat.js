@@ -103,10 +103,10 @@ router.post('/summary', authMiddleware, async (req, res, next) => {
 // ── POST /api/chat/quiz ───────────────────────────────────────────────────────
 router.post('/quiz', authMiddleware, async (req, res, next) => {
   try {
-    const { lessonId, count = 5, type = 'mcq' } = req.body;
+    const { lessonId, count = 10, type = 'mcq', difficulty = 'mixed' } = req.body;
     if (!lessonId) return res.status(400).json({ success: false, error: 'lessonId required.' });
 
-    const questions = await generateQuiz(lessonId, Math.min(count, 10), type);
+    const questions = await generateQuiz(lessonId, Math.min(count, 15), type, difficulty);
     res.json({ success: true, questions });
   } catch (err) {
     next(err);

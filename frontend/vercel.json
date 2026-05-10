@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://sheryai-backend-471820890563.asia-south1.run.app/api/:path*"
+    }
+  ]
+}

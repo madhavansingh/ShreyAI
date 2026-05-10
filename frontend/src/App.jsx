@@ -2,6 +2,9 @@ import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 
+// ── Landing page (public, no auth) ────────────────────────
+const LandingPage = lazy(() => import('./pages/LandingPage'));
+
 // ── Lazy loaded pages ─────────────────────────────────────
 const LoginPage         = lazy(() => import('./pages/LoginPage'));
 const HomePage          = lazy(() => import('./pages/HomePage'));
@@ -61,7 +64,8 @@ export default function App() {
         <Routes>
           {/* Public */}
           <Route path="/login"  element={<LoginPage />} />
-          <Route path="/"       element={<HomePage />} />
+          <Route path="/"       element={<LandingPage />} />
+          <Route path="/home"   element={<HomePage />} />
 
           {/* Role-guarded (just needs any demo role set) */}
           <Route path="/dashboard"                   element={<RoleGuard><DashboardPage /></RoleGuard>} />

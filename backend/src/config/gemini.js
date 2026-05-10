@@ -36,8 +36,8 @@ const geminiFlash = {
     const completion = await nvidia.chat.completions.create({
       model:       NVIDIA_MODEL,
       messages,
-      temperature: 0.4,
-      max_tokens:  2048,
+      temperature: 0.3,
+      max_tokens:  4096,
     });
 
     const text = completion.choices[0]?.message?.content || '';

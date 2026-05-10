@@ -4,10 +4,11 @@
   "description": "AI Learning Companion — Backend API",
   "main": "src/index.js",
   "scripts": {
-    "start": "node src/index.js",
-    "dev": "nodemon src/index.js",
+    "start":   "node src/index.js",
+    "predev":  "lsof -ti:5001 | xargs kill -9 2>/dev/null; exit 0",
+    "dev":     "nodemon src/index.js",
     "preIngest": "node scripts/preIngest.js",
-    "test": "echo \"No tests yet\""
+    "test":    "echo \"No tests yet\""
   },
   "keywords": [],
   "author": "",

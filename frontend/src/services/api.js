@@ -2,7 +2,13 @@
  * services/api.js — Demo auth via x-demo-role header
  */
 
-const BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001';
+// In production on roviq.xyz, Vercel proxies /api/* → Cloud Run (same origin, no CORS needed).
+// In local dev, use the full backend URL from .env.
+const BASE_URL =
+  import.meta.env.VITE_BACKEND_URL && import.meta.env.VITE_BACKEND_URL !== ''
+    ? import.meta.env.VITE_BACKEND_URL
+    : '';
+
 
 function getRole() {
   return localStorage.getItem('demo_role') || 'student';

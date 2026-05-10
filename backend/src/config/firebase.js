@@ -7,7 +7,14 @@ if (!admin.apps.length) {
   try {
     const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
     if (!raw) throw new Error('FIREBASE_SERVICE_ACCOUNT is empty');
-    serviceAccount = JSON.parse(raw);
+
+    // Try direct parse first (Secret Manager stores valid JSON)
+    // Fallback: replace escaped \\n with real newlines (some env var formats need this)
+    try {
+      serviceAccount = JSON.parse(raw);
+    } catch {
+      serviceAccount = JSON.parse(raw.replace(/\\n/g, '\n'));
+    }
   } catch (err) {
     console.error('❌ Failed to parse FIREBASE_SERVICE_ACCOUNT:', err.message);
     process.exit(1);

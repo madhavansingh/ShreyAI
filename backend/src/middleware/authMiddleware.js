@@ -16,7 +16,8 @@ const authMiddleware = (req, res, next) => {
 };
 
 const requireInstructor = (req, res, next) => {
-  if (req.user?.role !== 'instructor') {
+  // 'instructor' role OR 'demo' role (public landing page demo) are both allowed
+  if (req.user?.role !== 'instructor' && req.user?.role !== 'demo') {
     return res.status(403).json({
       success: false,
       error:   'Access denied. Instructor role required.',

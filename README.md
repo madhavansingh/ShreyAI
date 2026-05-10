@@ -297,8 +297,3 @@ cd backend && node scripts/preIngest.js <lessonId>
 4. Push: `git push origin feat/your-feature`
 5. Open a Pull Request
 
----
-
-## 📄 License
-
-MIT © [KANISHQ09](https://github.com/KANISHQ09)
